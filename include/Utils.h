@@ -3,6 +3,14 @@
 #define UTILS_H
 
 class Utils
+
+
+/**
+ * @brief Enables the hardware timer interrupts.
+ * 
+ * This function resumes the hardware timer interrupts that were previously
+ * disabled using disableHwTimer().
+ */
 {
 
 /**
@@ -18,6 +26,23 @@ public:
      * @brief Initializes the Logger module.
      */
     static void checkEspFlash(void);
+
+    /**
+     * @brief Initialize a hardware timer to call a user function at a specified grid frequency.
+     * @param gridFrequency The grid frequency in Hz.
+     * @param userFunc The user function to be called by the timer interrupt.
+     */
+    static void initHwTimer(uint8_t gridFrequency, timercallback userFunc);
+
+    /**
+     * @brief Disables the hardware timer interrupts.
+    */
+    static void disableHwTimer(void);
+
+     /**
+     * @brief Enable the hardware timer interrupts.
+    */
+    static void enableHwTimer(void);
 
 };
 

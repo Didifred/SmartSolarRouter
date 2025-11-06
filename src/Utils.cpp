@@ -1,7 +1,8 @@
-
-#include <Arduino.h>
+#include <Esp.h>
 #include "Utils.h"
 #include "Logger.h"
+
+#define TIMER1_FREQ_HZ 80000000UL
 
 void Utils::checkEspFlash()
 {
@@ -27,5 +28,27 @@ void Utils::checkEspFlash()
   {
     Logger::log(LogLevel::INFO, "Flash Chip configuration ok.");
   }
+}
 
+void Utils::initHwTimer(uint8_t gridFrequency, timercallback userFunc)
+{
+  uint32_t periodTicks = (TIMER1_FREQ_HZ / (gridFrequency));
+  float periodMs = ((float)periodTicks / (TIMER1_FREQ_HZ/1000));
+
+  timer1_attachInterrupt(userFunc);
+  timer1_write(periodTicks); 
+
+  Logger::log(LogLevel::INFO, "Init ISR timer1 with period : %f ms", periodMs);
+}
+
+void Utils::disableHwTimer(void)
+{
+  timer1_disable();
+  Logger::log(LogLevel::INFO, "Disabled ISR timer1");
+}
+
+void Utils::enableHwTimer(void)
+{
+  timer1_enable(TIM_DIV1, TIM_EDGE, TIM_LOOP);
+  Logger::log(LogLevel::INFO, "Enabled ISR timer1");
 }

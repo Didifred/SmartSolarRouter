@@ -2,7 +2,7 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
-#include <Arduino.h>
+#include <WString.h>
 
 enum class LogLevel
 {

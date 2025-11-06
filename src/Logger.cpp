@@ -27,6 +27,8 @@
  * 2. Use Logger::log() methods to log messages at various log levels.
  * 3. Optionally, adjust the log level using Logger::setLogLevel().
  */
+#include <HardwareSerial.h>
+#include <stdio.h>
 #include "Logger.h"
 #include "uptime.h"
 
