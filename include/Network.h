@@ -27,6 +27,7 @@ public:
 
     /** 
      * @brief return captive portal state
+     * @return true if in captive portal
      */
     static bool isWifiMngCaptivePortal(void);
 

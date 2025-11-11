@@ -1,85 +1,183 @@
-#ifndef PID_v1_h
-#define PID_v1_h
-#define LIBRARY_VERSION 1.2.1
+#ifndef LIB_PID
+#define LIB_PID
+
+#define PID_LIBRARY_VERSION "1.2.1"
+
+#include <math.h>
+
+
+enum class PidProportionalOption
+{
+    ON_MEASUREMENT = 0,
+    ON_ERROR
+};
+
+enum class PidMode
+{
+    AUTOMATIC = 0,
+    MANUAL
+};
+
+enum class PidDirection
+{
+    DIRECT = 0,
+    REVERSE
+};
 
 class PID
 {
 
 public:
-// Constants used in some of the functions below
-#define AUTOMATIC 1
-#define MANUAL 0
 
-#define DIRECT 0
-#define REVERSE 1
-
-#define P_ON_M 0
-#define P_ON_E 1
 
   // commonly used functions **************************************************************************
-  PID(double *, double *, double *,      // * constructor.  links the PID to the Input, Output, and
-      double, double, double, int, int); //   Setpoint.  Initial tuning parameters are also set here.
-                                         //   (overload for specifying proportional mode)
+  
+  /**
+   * @brief Constructs and initializes a PID controller instance.
+   *
+   * Creates a PID controller that will read the current process value from *Input,
+   * compare it to the desired target *Setpoint, and write the computed control value
+   * to *Output using the provided tuning parameters and controller options.
+   *
+   * @param Input  The controller reads the value pointed to by this pointer during compute cycles.
+   * @param Output Pointer to the variable where the controller writes the computed output.
+   * @param Setpoint Pointer to the target value the controller should achieve.
+   * @param Kp Proportional gain.
+   * @param Ki Integral gain.
+   * @param Kd Derivative gain.
+   * @param ProportionalOption Specifies how the proportional term is applied (for
+   *                           example, proportional-on-error vs proportional-on-measurement).
+   *                           Type: PidProportionalOption.
+   * @param ControllerDirection Sets the controller action direction (e.g. DIRECT or REVERSE).
+   *                            Type: PidDirection.
+   */
+  PID(float_t* Input, float_t* Output, float_t* Setpoint,
+      float_t Kp, float_t Ki, float_t Kd, 
+      PidProportionalOption ProportionalOption, PidDirection ControllerDirection);
 
-  PID(double *, double *, double *, // * constructor.  links the PID to the Input, Output, and
-      double, double, double, int); //   Setpoint.  Initial tuning parameters are also set here
+  /**
+   * @brief  Constructs and initializes a PID controller instance with proportional-on-error option.
+   *
+   * Creates a PID controller that will read the current process value from *Input,
+   * compare it to the desired target *Setpoint, and write the computed control value
+   * to *Output using the provided tuning parameters and controller options.
+   *
+   * @param Input  The controller reads the value pointed to by this pointer during compute cycles.
+   * @param Output Pointer to the variable where the controller writes the computed output.
+   * @param Setpoint Pointer to the target value the controller should achieve.
+   * @param Kp Proportional gain.
+   * @param Ki Integral gain.
+   * @param Kd Derivative gain.
+   * @param ControllerDirection Sets the controller action direction (e.g. DIRECT or REVERSE).
+   *                            Type: PidDirection.
+   *
+   */
+  PID(float_t* Input, float_t* Output, float_t* Setpoint,
+      float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection);
 
-  void SetMode(int Mode); // * sets PID to either Manual (0) or Auto (non-0)
 
-  bool Compute(); // * performs the PID calculation.  it should be
-                  //   called every time loop() cycles. ON/OFF and
-                  //   calculation frequency can be set using SetMode
-                  //   SetSampleTime respectively
+  /**
+   * @brief Sets the mode of operation for the PID controller
+   * @param Mode The desired mode of operation (Manual or Auto)
+   * 
+   * Sets the PID controller to operate in either Manual mode where output is directly
+   * set by the user, or Auto mode where output is calculated based on PID algorithm.
+   */
+  void SetMode(PidMode Mode);
 
-  void SetOutputLimits(double, double); // * clamps the output to a specific range. 0-255 by default, but
-                                        //   it's likely the user will want to change this depending on
-                                        //   the application
 
-  // available but not commonly used functions ********************************************************
-  void SetTunings(double, double, // * While most users will set the tunings once in the
-                  double);        //   constructor, this function gives the user the option
-                                  //   of changing tunings during runtime for Adaptive control
-  void SetTunings(double, double, // * overload for specifying proportional mode
-                  double, int);
+  /**
+   * @brief Perform the PID control calculation and update the output.
+   *
+   * @return true if a new output was computed and applied (controller in
+   * automatic mode); false if no calculation was performed 
+   * (controller in manual mode).
+   */
+  bool Compute(void); 
 
-  void SetControllerDirection(int); // * Sets the Direction, or "Action" of the controller. DIRECT
-                                    //   means the output will increase when error is positive. REVERSE
-                                    //   means the opposite.  it's very unlikely that this will be needed
-                                    //   once it is set in the constructor.
-  void SetSampleTime(int);          // * sets the frequency, in Milliseconds, with which
-                                    //   the PID calculation is performed.  default is 100
 
-  // Display functions ****************************************************************
-  double GetKp();     // These functions query the pid for interal values.
-  double GetKi();     //  they were created mainly for the pid front-end,
-  double GetKd();     // where it's important to know what is actually
-  int GetMode();      //  inside the PID.
-  int GetDirection(); //
+  /**
+   * @brief Configure the allowable range for the controller output.
+   *
+   * Sets the minimum and maximum output values produced by the PID controller.
+   * The controller's output is clamped to this range and the internal integral
+   * term is adjusted as needed to prevent integral wind-up when the limits change.
+   *
+   * @param Min The lower bound of the output (inclusive).
+   * @param mMx The upper bound of the output (inclusive).
+   * 
+   * @return true if success (Min < Max)
+   */
+  bool SetOutputLimits(float_t Min, float_t Max);
+
+  /**
+   * @brief Configure the PID controller tuning parameters.
+   *
+   * Sets the proportional, integral and derivative gains. 
+   *
+   * @param Kp Proportional gain.
+   * @param Ki Integral gain.
+   * @param Kd Derivative gain.
+   * 
+   * @return true if success (parameters needs to be positives)
+   */
+  bool SetTunings(float_t Kp, float_t Ki, float_t Kd);
+
+  /**
+   * @brief Configure the PID controller tuning parameters.
+   *
+   * Sets the proportional, integral and derivative gains and selects how the
+   * proportional action is applied and the controller action direction.
+   *
+   * @param Kp Proportional gain.
+   * @param Ki Integral gain.
+   * @param Kd Derivative gain.
+   * @param ProportionalOption Option specifying where the proportional term is applied.
+   * @param controllerDirection Controller action direction (e.g., DIRECT or REVERSE).
+   * 
+   * @return true if success (parameters needs to be positives)
+   */
+  bool SetTunings(float_t Kp, float_t Ki, float_t Kd, 
+                  PidProportionalOption ProportionalOption,
+                  PidDirection controllerDirection);
+
+  
+  /**
+   * @brief Set the PID controller's sample time (control loop period).
+   *
+   * Configure the interval at which the controller's Compute() method is intended
+   * to run, expressed in milliseconds. 
+   *
+   * @param NewSampleTime New sample time in milliseconds.
+   * 
+   */
+  void SetSampleTime(uint32_t NewSampleTime);
+
+
 
 private:
   void Initialize();
 
-  double dispKp; // * we'll hold on to the tuning parameters in user-entered
-  double dispKi; //   format for display purposes
-  double dispKd; //
+  void Clamp(float* value);
 
-  double kp; // * (P)roportional Tuning Parameter
-  double ki; // * (I)ntegral Tuning Parameter
-  double kd; // * (D)erivative Tuning Parameter
+  float_t m_kp; /** (P)roportional Tuning Parameter */
+  float_t m_ki; /** (I)ntegral Tuning Parameter */
+  float_t m_kd; /** (D)erivative Tuning Parameter */
 
-  int controllerDirection;
-  int pOn;
+  /** The PID will either be connected to a DIRECT acting process (+Output leads
+    * to +Input) or a REVERSE acting process(+Output leads to -Input.)  
+    */
+  PidProportionalOption m_proportionalOption;
+  PidMode m_mode;
+  PidDirection m_controllerDirection;
 
-  double *myInput;    // * Pointers to the Input, Output, and Setpoint variables
-  double *myOutput;   //   This creates a hard link between the variables and the
-  double *mySetpoint; //   PID, freeing the user from having to constantly tell us
-                      //   what these values are.  with pointers we'll just know.
+  /** Pointers to the Input, Output, and Setpoint variables */
+  float_t *m_input;    
+  float_t *m_output;   
+  float_t *m_setpoint; 
 
-  unsigned long lastTime;
-  double outputSum, lastInput;
-
-  unsigned long SampleTime;
-  double outMin, outMax;
-  bool inAuto, pOnE;
+  float_t m_outputSum, m_lastInput;
+  float_t m_outMin, m_outMax;
+  uint32_t m_sampleTime;
 };
-#endif
+#endif /* LIB_PID */
