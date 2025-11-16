@@ -38,7 +38,7 @@ LogLevel Logger::m_logLevel = LogLevel::NONE;
 
 void Logger::init(void)
 {
-    m_logLevel = LogLevel::DEBUG;
+    Serial.println("");
 }
 
 void Logger::log(LogLevel logLevel, const String& message)
@@ -94,7 +94,11 @@ void Logger::log(LogLevel logLevel, const char* message, ...)
 
 void Logger::setLogLevel(LogLevel level)
 {
-    m_logLevel = level;
+    if (level != m_logLevel)
+    {
+        log(LogLevel::INFO, "Logger is set to" + logLevelToString(level)  +"level" );
+        m_logLevel = level;
+    }
 }
 
 /** \private interfaces */

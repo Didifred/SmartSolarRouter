@@ -4,6 +4,7 @@
 #include <updater.h>
 #include <fetch.h>
 #include <configManager.h>
+#include <dashboard.h>
 
 #include <ESP8266mDNS.h>
 
@@ -79,6 +80,9 @@ void setup()
     // Web server init
     GUI.begin();
 
+    // Dashboard refresh
+    dash.begin(500);
+
     // Shelly init
     /* TODO : could be shellyem-c45bbee1d9b1 ?*/
     m_shelly.setIpAddress("192.168.1.58");
@@ -110,6 +114,8 @@ void BackgroundCbk(void)
 {
   if  (!m_runnerP0.isOverrun())
   {
+    // Prior to some freeze loop action, update ManageCbk
+
     // Wifi, mDNS
     Network::loop();
 
@@ -118,6 +124,9 @@ void BackgroundCbk(void)
 
     // Config manager storage in EEPROM
     configManager.loop();
+
+    // Dashboard update
+    dash.loop();
   }
 
 }
@@ -130,7 +139,7 @@ void ManagerCbk(void)
     {
       case MNG_INITIALIZING :
       case MNG_DIMMER_OFF :
-        if ((updater.getStatus() != 254) &&
+        if ((updater.getStatusEnum() != FSUpdaterStatus::FLASHING) &&
            (Network::isWifiMngCaptivePortal() == false) )
         {
           m_appliState  = MNG_DIMMER_ON;
@@ -142,7 +151,7 @@ void ManagerCbk(void)
         break;
 
       case MNG_DIMMER_ON :
-        if ((updater.getStatus() == 254) || 
+        if ((updater.getStatusEnum() == FSUpdaterStatus::FLASHING) || 
            (Network::isWifiMngCaptivePortal() == true) )
         {
           m_appliState  = MNG_DIMMER_OFF;
@@ -167,15 +176,20 @@ void PidFilterCbk(void)
 void GetShellyPowerCbk(void)
 {
   float power = 0.0f;
+  bool success = false;
 
   if (!m_runnerP1.isOverrun())
   {
     if (m_appliState == MNG_DIMMER_ON)
     {
-      m_shelly.updateMeasures();
-      power = m_shelly.getActivePower();
-
-      Logger::log(LogLevel::DEBUG, "Shelly: Active Power = %f W", power);
+      success = m_shelly.updateMeasures();
+      if (success)
+      {
+        power = m_shelly.getActivePower();
+      }
+    
+      // Update graphic on dashboard
+      dash.data.gridPower = power;
     }
   }
 }
@@ -185,7 +199,7 @@ void GetShellyPowerCbk(void)
 
 void SaveCallback() 
 {
-    Logger::log(LogLevel::INFO, "EEPROM saved"); 
+    Logger::log(LogLevel::INFO, "Configuration saved in EEPROM"); 
 }
 
 /** Dimmer ISR */

@@ -24,6 +24,9 @@ public:
      */
     void setIpAddress(const String& ip);
     
+   /**
+    * @brief Request to Shelly the settings information in order to recognize version of it
+    */
     void updateSettings(void);
 
     /**
@@ -42,6 +45,7 @@ public:
 private:
 
     float m_activePower;
+    bool m_error;
     String m_IP;
     HTTPClient m_httpClient;
     WiFiClient& m_espClient;

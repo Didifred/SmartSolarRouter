@@ -27,6 +27,7 @@ Shelly::Shelly(WiFiClient& wifiClient) : m_espClient(wifiClient)
     /* could be also hostname "shellyem-xxxxxxx" */
     m_IP = "0.0.0.0";
     m_activePower = 0.0f;
+    m_error = false;
 }
 
 void Shelly::setIpAddress(const String& ip)
@@ -69,14 +70,21 @@ bool Shelly::updateMeasures(void)
 
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, payload);
+        if (!doc.is<JsonVariant>())
+        {
+            error = DeserializationError::InvalidInput;
+        }
 
         if (error == DeserializationError::Ok)
         {
-            if (doc.is<JsonVariant>())
+            m_activePower = doc["power"].as<float>();
+
+            if (m_error)
             {
-                m_activePower = doc["power"].as<float>();
-                success = true;
+                Logger::log(LogLevel::INFO, "Shelly: back OK, active Power = %f W", m_activePower);
             }
+            success = true;
+    
         }
         else
         {
@@ -86,8 +94,10 @@ bool Shelly::updateMeasures(void)
     else
     {   
         m_httpClient.end();
-        Logger::log(LogLevel::ERROR, "Shelly: HTTP request failed with code %s", m_httpClient.errorToString(httpCodeStatus).c_str());
+        Logger::log(LogLevel::ERROR, "Shelly: HTTP request failed with code '%s'", m_httpClient.errorToString(httpCodeStatus).c_str());
     }
+
+    m_error = !(success);
 
     return success;
 }
