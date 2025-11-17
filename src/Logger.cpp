@@ -96,7 +96,7 @@ void Logger::setLogLevel(LogLevel level)
 {
     if (level != m_logLevel)
     {
-        log(LogLevel::INFO, "Logger is set to" + logLevelToString(level)  +"level" );
+        log(LogLevel::INFO, "Logger is set to " + logLevelToString(level)  +" level" );
         m_logLevel = level;
     }
 }

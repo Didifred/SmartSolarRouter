@@ -13,6 +13,7 @@
 #include "Utils.h"
 #include "Network.h"
 #include "Dimmer.h"
+#include "libPID.h"
 
 typedef enum 
 { 
@@ -53,6 +54,7 @@ Shelly m_shelly(espClient);
 
 /** Dimmer */
 Dimmer m_dimmer(3, 50); // 3 channels, 50 Hz grid frequency
+
 
 static MngState_t m_appliState = MNG_INITIALIZING;
 

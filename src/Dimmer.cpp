@@ -1,9 +1,11 @@
 #include <Arduino.h>
+#include <dashboard.h>
 #include "Dimmer.h"
 #include "Logger.h"
+#include "libPID.h"
 
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency) : m_pid(1.0f, 0.0f, 0.0f, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
@@ -22,6 +24,11 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency)
     m_ssrPinStates[i] = false;
     m_pinMapping[i] = 0;
   }
+
+  // TODO setup it dynamically
+  m_pid.SetOutputLimits(0, 3000);
+
+  m_pid.SetSampleTime(1000/gridFrequency);
 }
 
 Dimmer::~Dimmer()
@@ -61,7 +68,17 @@ void Dimmer::turnOn(void)
 }
 
 void Dimmer::update(float_t gridPower)
-{
+{ 
+  static float_t HeaterPower = 0.0f;
+
+  // Simulate a solar production of 1500 W 
+  gridPower -= 1500;
+  gridPower += HeaterPower;
+
+  HeaterPower = m_pid.Compute(gridPower, -50);
+
+  // Update graphic on dashboard
+  dash.data.powerRouted = HeaterPower;
 
 }
 

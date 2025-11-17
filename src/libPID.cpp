@@ -11,18 +11,13 @@
 #include "libPID.h"
 
 
-PID::PID(float_t* Input, float_t* Output, float_t* Setpoint,
-         float_t Kp, float_t Ki, float_t Kd, 
+PID::PID(float_t Kp, float_t Ki, float_t Kd, 
          PidProportionalOption ProportionalOption, PidDirection ControllerDirection)
 {
-    m_output = Output;
-    m_input = Input;
-    m_setpoint = Setpoint;
-
-    m_mode = PidMode::AUTOMATIC;
     m_lastInput = 0.0f;
+    m_outputSum = 0.0f;
 
-    //default output limit corresponds to the arduino pwm limits
+    // default output limit corresponds to the arduino pwm limits
     PID::SetOutputLimits(0, 255);				
 								
     //default Controller Sample Time is 0.1 seconds
@@ -32,51 +27,44 @@ PID::PID(float_t* Input, float_t* Output, float_t* Setpoint,
 }
 
 
-PID::PID(float_t* Input, float_t* Output, float_t* Setpoint,
-        float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
-    :PID::PID(Input, Output, Setpoint, Kp, Ki, Kd, PidProportionalOption::ON_ERROR, ControllerDirection)
+PID::PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
+    :PID::PID( Kp, Ki, Kd, PidProportionalOption::ON_ERROR, ControllerDirection)
 {
 
 }
 
-bool PID::Compute(void)
+float_t PID::Compute(float_t Input, float_t Setpoint)
 {
-   if (m_mode == PidMode::AUTOMATIC)
-   {
-      // Compute all the working error variables
-      float_t input = *m_input;
-      float_t error = *m_setpoint - input;
-      float_t dInput = (input - m_lastInput);
-      float_t output = 0.0f;
+   // Compute all the working error variables
+   float_t error = Setpoint - Input;
+   float_t dInput = (Input - m_lastInput);
+   float_t output = 0.0f;
       
-      m_outputSum += (m_ki * error);
+   m_outputSum += (m_ki * error);
 
-      // Add Proportional on Measurement, if PidProportionalOption::ON_MEASUREMENT is specified
-      if (m_proportionalOption == PidProportionalOption::ON_MEASUREMENT)
-      {
-         m_outputSum -= m_kp * dInput;
-      }
-
-      Clamp(&m_outputSum);
-
-      // Add Proportional on Error, if PidProportionalOption::ON_ERROR is specified
-      if (m_proportionalOption == PidProportionalOption::ON_ERROR)
-      {
-         output = m_kp * error;
-      }
-
-      // Compute Rest of PID Output
-      output += m_outputSum - m_kd * dInput;
-
-      Clamp(&output);
-	   
-      *m_output = output;
-
-      // Remember some variables for next time
-      m_lastInput = input;
+   // Add Proportional on Measurement, if PidProportionalOption::ON_MEASUREMENT is specified
+   if (m_proportionalOption == PidProportionalOption::ON_MEASUREMENT)
+   {
+      m_outputSum -= m_kp * dInput;
    }
-	 
-   return (m_mode == PidMode::AUTOMATIC);
+
+   Clamp(&m_outputSum);
+
+   // Add Proportional on Error, if PidProportionalOption::ON_ERROR is specified
+   if (m_proportionalOption == PidProportionalOption::ON_ERROR)
+   {
+      output = m_kp * error;
+   }
+
+   // Compute Rest of PID Output
+   output += m_outputSum - m_kd * dInput;
+
+   Clamp(&output);
+	   
+   // Remember some variables for next time
+   m_lastInput = Input;
+
+   return (output);
 }
 
 bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd, 
@@ -134,42 +122,16 @@ bool PID::SetOutputLimits(float_t Min, float_t Max)
       m_outMin = Min;
       m_outMax = Max;
 
-      if(m_mode == PidMode::AUTOMATIC)
-      {
-         Clamp(m_output);
-         Clamp(&m_outputSum);
-      }
-
       success = true;
    }
 
    return (success);
 }
 
-
-void PID::SetMode(PidMode Mode)
+void PID::Initialize(float_t Input, float_t Output)
 {
-    if ((Mode == PidMode::AUTOMATIC) && (m_mode == PidMode::MANUAL))
-    {
-      // we just went from manual to auto
-      PID::Initialize();
-    }
-    m_mode = Mode;
-}
-
-
-
-/**
- * @brief Initialize internal state of the PID controller.
- *
- * This method seeds the integral accumulator and the last-input value from the
- * current controller I/O values, and enforces the configured output limits to
- * prevent integral windup on startup.
- */
-void PID::Initialize()
-{
-   m_outputSum = *m_output;
-   m_lastInput = *m_input;
+   m_outputSum = Output;
+   m_lastInput = Input;
 
    Clamp(&m_outputSum);
 }

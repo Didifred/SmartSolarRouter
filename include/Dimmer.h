@@ -2,6 +2,7 @@
 #define DIMMER_H
 
 #include <stdint.h>
+#include "libPID.h"
 #include "hwConfig.h"
 
 
@@ -56,9 +57,10 @@ private:
 
     uint8_t m_nbChannels;
     uint8_t m_gridFrequency;
-    bool m_state;
-    bool* m_ssrPinStates;
-    uint8_t *m_pinMapping;
+    bool m_state; // ON or OFF
+    bool* m_ssrPinStates; // Array of boolean of size m_nbChannels
+    uint8_t *m_pinMapping; // Pin affectation to channels
+    PID m_pid;
 };
 
 

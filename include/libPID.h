@@ -12,12 +12,6 @@ enum class PidProportionalOption
     ON_ERROR
 };
 
-enum class PidMode
-{
-    AUTOMATIC = 0,
-    MANUAL
-};
-
 enum class PidDirection
 {
     DIRECT = 0,
@@ -29,19 +23,11 @@ class PID
 
 public:
 
-
-  // commonly used functions **************************************************************************
-  
   /**
    * @brief Constructs and initializes a PID controller instance.
    *
-   * Creates a PID controller that will read the current process value from *Input,
-   * compare it to the desired target *Setpoint, and write the computed control value
-   * to *Output using the provided tuning parameters and controller options.
+   * Creates a PID controller using the provided tuning parameters and controller options.
    *
-   * @param Input  The controller reads the value pointed to by this pointer during compute cycles.
-   * @param Output Pointer to the variable where the controller writes the computed output.
-   * @param Setpoint Pointer to the target value the controller should achieve.
    * @param Kp Proportional gain.
    * @param Ki Integral gain.
    * @param Kd Derivative gain.
@@ -51,20 +37,14 @@ public:
    * @param ControllerDirection Sets the controller action direction (e.g. DIRECT or REVERSE).
    *                            Type: PidDirection.
    */
-  PID(float_t* Input, float_t* Output, float_t* Setpoint,
-      float_t Kp, float_t Ki, float_t Kd, 
+  PID(float_t Kp, float_t Ki, float_t Kd, 
       PidProportionalOption ProportionalOption, PidDirection ControllerDirection);
 
   /**
    * @brief  Constructs and initializes a PID controller instance with proportional-on-error option.
    *
-   * Creates a PID controller that will read the current process value from *Input,
-   * compare it to the desired target *Setpoint, and write the computed control value
-   * to *Output using the provided tuning parameters and controller options.
+   * Creates a PID controller using the provided tuning parameters and controller options.
    *
-   * @param Input  The controller reads the value pointed to by this pointer during compute cycles.
-   * @param Output Pointer to the variable where the controller writes the computed output.
-   * @param Setpoint Pointer to the target value the controller should achieve.
    * @param Kp Proportional gain.
    * @param Ki Integral gain.
    * @param Kd Derivative gain.
@@ -72,28 +52,18 @@ public:
    *                            Type: PidDirection.
    *
    */
-  PID(float_t* Input, float_t* Output, float_t* Setpoint,
-      float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection);
-
-
-  /**
-   * @brief Sets the mode of operation for the PID controller
-   * @param Mode The desired mode of operation (Manual or Auto)
-   * 
-   * Sets the PID controller to operate in either Manual mode where output is directly
-   * set by the user, or Auto mode where output is calculated based on PID algorithm.
-   */
-  void SetMode(PidMode Mode);
+  PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection);
 
 
   /**
    * @brief Perform the PID control calculation and update the output.
-   *
-   * @return true if a new output was computed and applied (controller in
-   * automatic mode); false if no calculation was performed 
-   * (controller in manual mode).
+   * 
+   * @param Input  New input value for the PID controller.
+   * @param Setpoint The target value the PID controller should achieve.
+   * 
+   * @return PID filtered output
    */
-  bool Compute(void); 
+  float_t Compute(float_t Input, float_t Setpoint); 
 
 
   /**
@@ -153,10 +123,18 @@ public:
    */
   void SetSampleTime(uint32_t NewSampleTime);
 
+  /**
+   * @brief Initialize internal state of the PID controller.
+   * @param Input Latest input
+   * @param Output Latest output (forced)
+   * 
+   * This method seeds the integral accumulator and the last-input value from the
+   * current Input, and enforces the configured output limits to prevent integral windup on startup.
+   */
+  void Initialize(float_t Input, float_t Output);
 
 
 private:
-  void Initialize();
 
   void Clamp(float* value);
 
@@ -164,20 +142,22 @@ private:
   float_t m_ki; /** (I)ntegral Tuning Parameter */
   float_t m_kd; /** (D)erivative Tuning Parameter */
 
+  /**  Either apply proportional on error or on measurement */
+  PidProportionalOption m_proportionalOption;
+
   /** The PID will either be connected to a DIRECT acting process (+Output leads
     * to +Input) or a REVERSE acting process(+Output leads to -Input.)  
     */
-  PidProportionalOption m_proportionalOption;
-  PidMode m_mode;
-  PidDirection m_controllerDirection;
+  PidDirection m_controllerDirection; 
 
-  /** Pointers to the Input, Output, and Setpoint variables */
-  float_t *m_input;    
-  float_t *m_output;   
-  float_t *m_setpoint; 
+  /** Internal variables of the PID controller */
+  float_t m_outputSum;
+  float_t m_lastInput;
 
-  float_t m_outputSum, m_lastInput;
+  /** In order to clamp output */
   float_t m_outMin, m_outMax;
+
+  /* Sample time in milliseconds*/
   uint32_t m_sampleTime;
 };
 #endif /* LIB_PID */
