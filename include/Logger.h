@@ -3,6 +3,7 @@
 #define LOGGER_H
 
 #include <WString.h>
+#include <WiFiUdp.h>
 
 enum class LogLevel
 {
@@ -37,9 +38,20 @@ public:
 
     /**
      * @brief Initializes the Logger module.
+     * 
+     * @param udp
+     * @param hostIp
      */
     static void init(void);
 
+    /**
+     * @brief Setup teleplot over udp
+     * 
+     * @param udp  Udp socket
+     * @param hostIp host ip
+     * @param port udp port
+     */
+    static void setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, uint16_t port);
 
     /**
      * @brief Logs a message with the specified log level.
@@ -67,11 +79,23 @@ public:
      */
     static void setLogLevel(LogLevel level);
 
+    /**
+     * @brief Enable or disable teleplot over UDP
+     * 
+     * @param enable 
+     */
+    static void enableTeleplotUdp(bool enable);
+
 private:
     static String getTimestamp();
     static String logLevelToString(LogLevel logLevel);
+    static void output(const String &s);
 
     static LogLevel m_logLevel;
+    static bool m_teleplotUdpOn;
+    static WiFiUDP* m_udp;
+    static const char* m_hostIp;
+    static uint16_t m_udpPort;
 };
 
 #endif // LOGGER_H

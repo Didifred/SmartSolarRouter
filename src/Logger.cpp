@@ -27,6 +27,7 @@
  * 2. Use Logger::log() methods to log messages at various log levels.
  * 3. Optionally, adjust the log level using Logger::setLogLevel().
  */
+
 #include <HardwareSerial.h>
 #include <stdio.h>
 #include "Logger.h"
@@ -35,10 +36,22 @@
 /** \public interfaces */
 
 LogLevel Logger::m_logLevel = LogLevel::NONE;
+bool Logger::m_teleplotUdpOn = false;
+WiFiUDP* Logger::m_udp = nullptr;
+const char* Logger::m_hostIp = "";
+uint16_t Logger::m_udpPort = 0;
+
 
 void Logger::init(void)
 {
     Serial.println("");
+}
+
+void Logger::setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, uint16_t port)
+{
+    m_udp = udp;
+    m_hostIp = hostIp;
+    m_udpPort= port;
 }
 
 void Logger::log(LogLevel logLevel, const String& message)
@@ -46,7 +59,8 @@ void Logger::log(LogLevel logLevel, const String& message)
     if (logLevel >= m_logLevel)
     {
         String logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + message;
-        Serial.println(logMessage);
+
+        output(logMessage);
     }
 }
 
@@ -87,8 +101,7 @@ void Logger::log(LogLevel logLevel, const char* message, ...)
             logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + String("Log formatting error");
         }
         
-        Serial.println(logMessage);
-        // + write to file 
+        output(logMessage);
     }
 }
 
@@ -101,20 +114,46 @@ void Logger::setLogLevel(LogLevel level)
     }
 }
 
-/** \private interfaces */
-String Logger::getTimestamp()
+void Logger::enableTeleplotUdp(bool enable)
 {
-  String timestamp;
-
-  uptime::calculateUptime();
-  timestamp = String(uptime::getHours()) +":"+
-              String(uptime::getMinutes()) +":"+
-              String(uptime::getSeconds()) +"."+
-              String(uptime::getMilliseconds());
-
-   return timestamp;
+    m_teleplotUdpOn = enable;
 }
 
+/** \private interfaces */
+
+/**
+ * @brief Get timestamp
+ * 
+ * @return Time stamp in HH:MM:SS.mmm format 
+ */
+String Logger::getTimestamp()
+{
+    String timestamp;
+    char buffer[13];  // "HH:MM:SS.mmm\0" = 13 chars
+
+    uptime::calculateUptime();
+    sprintf(buffer, "%02d:%02d:%02d.%03d",
+            uptime::getHours(), 
+            uptime::getMinutes(), 
+            uptime::getSeconds(), 
+            uptime::getMilliseconds());
+
+    timestamp.concat(buffer);
+
+   //timestamp = String(uptime::getHours()) +":"+
+   //           String(uptime::getMinutes()) +":"+
+   //           String(uptime::getSeconds()) +"."+
+   //           String(uptime::getMilliseconds());
+
+    return timestamp;
+}   
+
+/**
+ * @brief Stringtify logLevel
+ * 
+ * @param logLevel  logLevel among debug, info, error
+ * @return String representing logLevel 
+ */
 String Logger::logLevelToString(LogLevel logLevel)
 {
     String s;
@@ -147,4 +186,27 @@ String Logger::logLevelToString(LogLevel logLevel)
     }
 
     return s;   
+}
+
+/**
+ * @brief Output a log on Serial and Teleplot Udp if on
+ * 
+ * @param s String to printed on outputs
+ */
+void Logger::output(const String &s)
+{
+    Serial.println(s);
+    // + write in file in the future
+
+    if (m_teleplotUdpOn)
+    {
+        if (m_udp != nullptr)
+        {
+            // Send to Teleplot server
+            m_udp->beginPacket(m_hostIp, m_udpPort);
+            // TODO have a time stamp format in ms with format ">ts:log"
+            m_udp->printf(">%s\n", s.c_str());
+            m_udp->endPacket();
+        }
+    }
 }

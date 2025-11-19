@@ -55,6 +55,8 @@ Shelly m_shelly(espClient);
 /** Dimmer */
 Dimmer m_dimmer(3, 50); // 3 channels, 50 Hz grid frequency
 
+/** UDP over wifi */
+WiFiUDP m_udp;
 
 static MngState_t m_appliState = MNG_INITIALIZING;
 
@@ -65,7 +67,7 @@ void setup()
     //Logger init
     Logger::init();
     Logger::setLogLevel(LogLevel::DEBUG);
-
+    
     // Check ESP flash size
     Utils::checkEspFlash();
 
@@ -76,8 +78,13 @@ void setup()
     configManager.begin();
     configManager.setConfigSaveCallback(SaveCallback);
 
+    // Setup teleplotUdp
+    Logger::setupTeleplotUdp(&m_udp, "192.168.1.96", 47269);
+
     // Network initialization
     Network::begin();
+    // Once it Wifi is ready set teleplot udp enable
+    Logger::enableTeleplotUdp(true);
   
     // Web server init
     GUI.begin();
@@ -97,11 +104,12 @@ void setup()
 
     // Hardware timer init for dimmer control (50Hz)
     // A little faster to ensure SSR synchro commands
-    Utils::initHwTimer(52, Dimmer_ISR);
+    Utils::initHwTimer(50, Dimmer_ISR);
 
      // Sheduler tasks setup and recursive start
     m_runnerP0.setHighPriorityScheduler(&m_runnerP1); 
     m_runnerP0.enableAll(true);
+
 }
 
 void loop()

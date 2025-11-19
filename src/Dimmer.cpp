@@ -5,7 +5,7 @@
 #include "libPID.h"
 
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency) : m_pid(1.0f, 0.0f, 0.0f, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency) : m_pid(0.5f, 0.0f, 0.0f, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
