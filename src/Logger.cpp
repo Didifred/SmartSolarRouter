@@ -20,7 +20,6 @@
  *
  * Dependencies:
  * - Logger.h: Logger class definition.
- * - uptime.h: Provides system uptime information for timestamping log messages.
  *
  * Usage:
  * 1. Call Logger::init() to initialize the logger.
@@ -31,15 +30,16 @@
 #include <HardwareSerial.h>
 #include <stdio.h>
 #include "Logger.h"
-#include "uptime.h"
 
 /** \public interfaces */
 
-LogLevel Logger::m_logLevel = LogLevel::NONE;
+LogLevel Logger::m_logLevel  = LogLevel::NONE;
 bool Logger::m_teleplotUdpOn = false;
-WiFiUDP* Logger::m_udp = nullptr;
+WiFiUDP* Logger::m_udp       = nullptr;
 const char* Logger::m_hostIp = "";
-uint16_t Logger::m_udpPort = 0;
+uint16_t Logger::m_udpPort   = 0;
+uint64_t Logger::m_baseTimeEpochMs = 0;
+uint32_t Logger::m_baseMillis = 0;
 
 
 void Logger::init(void)
@@ -47,24 +47,33 @@ void Logger::init(void)
     Serial.println("");
 }
 
-void Logger::setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, uint16_t port)
+void Logger::syncTime(void)
+{
+    time_t now;
+
+    time(&now);
+    m_baseTimeEpochMs = now * 1000;
+    m_baseMillis = (uint32_t) millis();
+}
+
+void Logger::setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, const uint16_t port)
 {
     m_udp = udp;
     m_hostIp = hostIp;
-    m_udpPort= port;
+    m_udpPort = port;
 }
 
-void Logger::log(LogLevel logLevel, const String& message)
+void Logger::log(const LogLevel logLevel, const String& message)
 {
     if (logLevel >= m_logLevel)
     {
-        String logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + message;
+        String logMessage = " [" + logLevelToString(logLevel) + "] " + message;
 
         output(logMessage);
     }
 }
 
-void Logger::log(LogLevel logLevel, const char* message, ...)
+void Logger::log(const LogLevel logLevel, const char* message, ...)
 {
     // Nothing to log if loglevel below current one */
     if (logLevel >= m_logLevel)
@@ -82,7 +91,7 @@ void Logger::log(LogLevel logLevel, const char* message, ...)
         if ((sizeNeeded < (int)sizeof(stackBuffer)) && (sizeNeeded >= 0))
         {
             // Fits in stack buffer
-            logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + String(stackBuffer);
+            logMessage = " [" + logLevelToString(logLevel) + "] " + String(stackBuffer);
         }
         else if (sizeNeeded >= 0)
         {
@@ -92,20 +101,20 @@ void Logger::log(LogLevel logLevel, const char* message, ...)
             vsnprintf(heapBuffer, sizeNeeded + 1, message, args);
             va_end(args);
 
-            logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + String(heapBuffer);
+            logMessage = " [" + logLevelToString(logLevel) + "] " + String(heapBuffer);
             delete[] heapBuffer;
         }
         else
         {
             // vsnprintf error
-            logMessage = getTimestamp() + " [" + logLevelToString(logLevel) + "] " + String("Log formatting error");
+            logMessage = " [" + logLevelToString(logLevel) + "] " + String("Log formatting error");
         }
         
         output(logMessage);
     }
 }
 
-void Logger::setLogLevel(LogLevel level)
+void Logger::setLogLevel(const LogLevel level)
 {
     if (level != m_logLevel)
     {
@@ -114,9 +123,40 @@ void Logger::setLogLevel(LogLevel level)
     }
 }
 
-void Logger::enableTeleplotUdp(bool enable)
+void Logger::enableTeleplotUdp(const bool enable)
 {
     m_teleplotUdpOn = enable;
+}
+
+void Logger::plot(const String& varname, const String& value, 
+                  std::optional<String> unit)
+{
+    
+    if (m_teleplotUdpOn && (m_udp != nullptr))
+    {
+        uint64_t epochMs; 
+        StringType valueType = getStringType(value);
+        String flag;
+        
+        // Send to Teleplot server
+        // See plot format in https://github.com/nesnes/teleplot/blob/main/README.md#telemetry-format
+        getTimestampMs(&epochMs);
+        if (valueType == StringType::IS_TEXT)
+        {
+           flag.concat("|t");
+        }
+
+        m_udp->beginPacket(m_hostIp, m_udpPort);
+        if (unit.has_value())
+        {
+            m_udp->printf("%s:%llu:%s§%s%s\n", varname.c_str(), epochMs, value.c_str(), unit.value().c_str(), flag.c_str());
+        }                    
+        else
+        {
+            m_udp->printf("%s:%llu:%s%s\n", varname.c_str(), epochMs, value.c_str(), flag.c_str());
+        }
+        m_udp->endPacket();
+    }
 }
 
 /** \private interfaces */
@@ -124,26 +164,33 @@ void Logger::enableTeleplotUdp(bool enable)
 /**
  * @brief Get timestamp
  * 
+ * @param epochMs Pointer to receive epoch time in milliseconds
  * @return Time stamp in HH:MM:SS.mmm format 
  */
-String Logger::getTimestamp()
+String Logger::getTimestampMs(uint64_t* epochMs)
 {
     String timestamp;
     char buffer[13];  // "HH:MM:SS.mmm\0" = 13 chars
+    time_t now;
+    struct tm *local;
+    uint16_t milliseconds;
 
-    uptime::calculateUptime();
-    sprintf(buffer, "%02d:%02d:%02d.%03d",
-            uptime::getHours(), 
-            uptime::getMinutes(), 
-            uptime::getSeconds(), 
-            uptime::getMilliseconds());
+    // Get current epoch time in milliseconds
+    *epochMs = m_baseTimeEpochMs + (uint32_t) (millis() - m_baseMillis);
 
+    // Convert epoch time in seconds to local time structure
+    now = *epochMs / 1000;
+    local = localtime(&now);
+    // Get milliseconds part
+    milliseconds = (*epochMs) % 1000;
+
+    // Format timestamp as HH:MM:SS.mmm
+    sprintf(buffer, "%02i:%02i:%02i.%03i",
+            local->tm_hour,
+            local->tm_min,
+            local->tm_sec,
+            milliseconds);
     timestamp.concat(buffer);
-
-   //timestamp = String(uptime::getHours()) +":"+
-   //           String(uptime::getMinutes()) +":"+
-   //           String(uptime::getSeconds()) +"."+
-   //           String(uptime::getMilliseconds());
 
     return timestamp;
 }   
@@ -154,7 +201,7 @@ String Logger::getTimestamp()
  * @param logLevel  logLevel among debug, info, error
  * @return String representing logLevel 
  */
-String Logger::logLevelToString(LogLevel logLevel)
+String Logger::logLevelToString(const LogLevel logLevel)
 {
     String s;
 
@@ -190,12 +237,17 @@ String Logger::logLevelToString(LogLevel logLevel)
 
 /**
  * @brief Output a log on Serial and Teleplot Udp if on
- * 
- * @param s String to printed on outputs
+ * @param logMsg Message to printed on outputs
  */
-void Logger::output(const String &s)
+void Logger::output(const String& logMessage)
 {
-    Serial.println(s);
+    String traceLog;
+    uint64_t epochMs; 
+    //Timestamp in HH:MM:SS.mmm
+    String timestamp = getTimestampMs(&epochMs);
+
+    traceLog = timestamp + logMessage;
+    Serial.println(traceLog);
     // + write in file in the future
 
     if (m_teleplotUdpOn)
@@ -204,9 +256,78 @@ void Logger::output(const String &s)
         {
             // Send to Teleplot server
             m_udp->beginPacket(m_hostIp, m_udpPort);
-            // TODO have a time stamp format in ms with format ">ts:log"
-            m_udp->printf(">%s\n", s.c_str());
+            m_udp->printf(">%llu:%s\n", epochMs, logMessage.c_str());
             m_udp->endPacket();
         }
     }
+}
+
+/**
+ * @brief Get the String Type object
+ * 
+ * @param str 
+ * @return StringType enum { IS_TEXT, IS_EMPTY, IS_INTEGER, IS_FLOAT}
+ */
+StringType Logger::getStringType(const String& str) 
+{
+    StringType result = StringType::IS_TEXT;  // Default to text
+    
+    if (str.length() == 0) 
+    {
+        result = StringType::IS_EMPTY;
+    } 
+    else 
+    {
+        bool hasDecimal = false;
+        bool hasDigit = false;
+        bool isValid = true;
+        uint32_t startIndex = 0;
+        
+        // Check for sign
+        if ((str[0] == '-') || (str[0] == '+')) 
+        {
+            if (str.length() == 1) 
+            {
+                isValid = false;
+            } 
+            else 
+            {
+                startIndex = 1;
+            }
+        }
+        
+        // Validate characters if still valid
+        if (isValid) 
+        {
+            for (uint32_t i = startIndex; i < str.length(); i++) 
+            {
+                if (isdigit(str[i])) 
+                {
+                    hasDigit = true;
+                } 
+                else if (str[i] == '.') 
+                {
+                    if (hasDecimal) 
+                    {
+                        isValid = false;  // Multiple dots
+                        break;
+                    }
+                    hasDecimal = true;
+                } 
+                else 
+                {
+                    isValid = false;  // Contains non-numeric char
+                    break;
+                }
+            }
+        }
+        
+        // Determine final type
+        if (isValid && hasDigit) 
+        {
+            result = hasDecimal ? StringType::IS_FLOAT : StringType::IS_INTEGER;
+        }
+    }
+    
+    return result;
 }

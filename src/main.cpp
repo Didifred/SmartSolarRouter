@@ -35,6 +35,7 @@ void SaveCallback();
 /** Timer ISR callback */
 IRAM_ATTR void Dimmer_ISR();
 
+   
 
 Scheduler m_runnerP0;
 Scheduler m_runnerP1;
@@ -44,8 +45,10 @@ Task m_taskManager(   50 * TASK_MILLISECOND, TASK_FOREVER,  &ManagerCbk,    &m_r
 Task m_taskBackground(25 * TASK_MILLISECOND, TASK_FOREVER,  &BackgroundCbk, &m_runnerP0);
 
 /** High prio tasks execution */
-Task m_taskPidFilter(20 * TASK_MILLISECOND, TASK_FOREVER, &PidFilterCbk,      &m_runnerP1);
-Task m_taskGetPower(500 * TASK_MILLISECOND, TASK_FOREVER, &GetShellyPowerCbk, &m_runnerP1);
+//First get Shelly power, then filter it with PID
+Task m_taskGetPower(POWER_GRID_MEASURE_PERIOD_MS * TASK_MILLISECOND, TASK_FOREVER, &GetShellyPowerCbk, &m_runnerP1);
+Task m_taskPidFilter((POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES) * TASK_MILLISECOND, TASK_FOREVER, &PidFilterCbk, &m_runnerP1);
+
 
 
 /** Shelly http requests */
@@ -53,7 +56,7 @@ WiFiClient espClient;
 Shelly m_shelly(espClient);
 
 /** Dimmer */
-Dimmer m_dimmer(3, 50); // 3 channels, 50 Hz grid frequency
+Dimmer m_dimmer(3, POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES); // 3 channels, grid frequency, PID sample time
 
 /** UDP over wifi */
 WiFiUDP m_udp;
@@ -83,7 +86,9 @@ void setup()
 
     // Network initialization
     Network::begin();
-    // Once it Wifi is ready set teleplot udp enable
+    // Once time is given by NTP, sync time to logger
+    Logger::syncTime();
+    // Once Wifi is ready set teleplot udp enable
     Logger::enableTeleplotUdp(true);
   
     // Web server init
@@ -93,7 +98,7 @@ void setup()
     dash.begin(500);
 
     // Shelly init
-    /* TODO : could be shellyem-c45bbee1d9b1 ?*/
+    /* TODO : could be host name shellyem-c45bbee1d9b1 ?*/
     m_shelly.setIpAddress("192.168.1.58");
   
     // Dimmer init
@@ -102,9 +107,8 @@ void setup()
     m_dimmer.mapChannelToPin(2, SSR3_Pin);
     m_dimmer.turnOff();
 
-    // Hardware timer init for dimmer control (50Hz)
-    // A little faster to ensure SSR synchro commands
-    Utils::initHwTimer(50, Dimmer_ISR);
+    // Hardware timer init for dimmer control (at 50Hz, *4 to drive SSR at right time)
+    Utils::initHwTimer(POWER_GRID_FREQUENCY_HZ*4, Dimmer_ISR);
 
      // Sheduler tasks setup and recursive start
     m_runnerP0.setHighPriorityScheduler(&m_runnerP1); 

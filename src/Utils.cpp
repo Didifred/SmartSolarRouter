@@ -30,9 +30,9 @@ void Utils::checkEspFlash()
   }
 }
 
-void Utils::initHwTimer(uint8_t gridFrequency, timercallback userFunc)
+void Utils::initHwTimer(uint8_t frequency, timercallback userFunc)
 {
-  uint32_t periodTicks = (TIMER1_FREQ_HZ / (gridFrequency));
+  uint32_t periodTicks = (TIMER1_FREQ_HZ / (frequency));
   float periodMs = ((float)periodTicks / (TIMER1_FREQ_HZ/1000));
 
   timer1_attachInterrupt(userFunc);

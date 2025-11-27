@@ -14,6 +14,14 @@ enum class LogLevel
     ERROR 
 };
 
+enum class StringType
+{
+    IS_EMPTY = 0,
+    IS_TEXT,
+    IS_INTEGER,
+    IS_FLOAT
+};
+
 class Logger
 /**
  * @class Logger
@@ -51,7 +59,14 @@ public:
      * @param hostIp host ip
      * @param port udp port
      */
-    static void setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, uint16_t port);
+    static void setupTeleplotUdp(WiFiUDP* udp, const char* hostIp, const uint16_t port);
+
+    /**
+     * @brief Sync the time for logger module
+     * 
+     * @param epoch 
+     */
+    static void syncTime();
 
     /**
      * @brief Logs a message with the specified log level.
@@ -59,7 +74,7 @@ public:
      * @param logLevel The severity level of the log message.
      * @param message The message to be logged.
      */
-    static void log(LogLevel logLevel, const String &message);
+    static void log(const LogLevel logLevel, const String &message);
 
     /**
      * @brief Logs a formatted message with the specified log level.
@@ -69,7 +84,7 @@ public:
      * @param message The format string for the log message.
      * @param ... Additional arguments for formatting in C-printf style.
      */
-    static void log(LogLevel logLevel, const char* message, ...);
+    static void log(const LogLevel logLevel, const char* message, ...);
 
     /**
      * @brief Sets the minimum log level for messages to be logged.
@@ -77,25 +92,39 @@ public:
      * 
      * @param level The minimum log level to set.
      */
-    static void setLogLevel(LogLevel level);
+    static void setLogLevel(const LogLevel level);
 
     /**
      * @brief Enable or disable teleplot over UDP
      * 
      * @param enable 
      */
-    static void enableTeleplotUdp(bool enable);
+    static void enableTeleplotUdp(const bool enable);
+
+    /**
+     * @brief Plot the variable time based
+     * 
+     * @param varname The name of the variable
+     * @param value The value in string
+     * @param unit An optional string for unit
+     */
+    static void plot(const String& varname, const String& value, 
+                     std::optional<String> unit = std::nullopt);
+
 
 private:
-    static String getTimestamp();
-    static String logLevelToString(LogLevel logLevel);
-    static void output(const String &s);
+    static String getTimestampMs(uint64_t* epochMs = nullptr);
+    static String logLevelToString(const LogLevel logLevel);
+    static void output(const String& logMessage);
+    static StringType getStringType(const String& str);
 
     static LogLevel m_logLevel;
     static bool m_teleplotUdpOn;
     static WiFiUDP* m_udp;
     static const char* m_hostIp;
     static uint16_t m_udpPort;
+    static uint64_t m_baseTimeEpochMs;
+    static uint32_t m_baseMillis;
 };
 
 #endif // LOGGER_H

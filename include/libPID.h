@@ -124,6 +124,13 @@ public:
   void SetSampleTime(uint32_t NewSampleTime);
 
   /**
+   * @brief Get the PID controller's sample time in ms (control loop period).
+   * 
+   * @return Samle time in milliseconds 
+   */
+  uint32_t GetSampleTime() const;
+
+  /**
    * @brief Initialize internal state of the PID controller.
    * @param Input Latest input
    * @param Output Latest output (forced)
@@ -132,6 +139,27 @@ public:
    * current Input, and enforces the configured output limits to prevent integral windup on startup.
    */
   void Initialize(float_t Input, float_t Output);
+
+  /**
+   * @brief Get the Kp paarameter
+   * 
+   * @return float_t 
+   */
+  float_t GetKp() const;
+
+  /**
+   * @brief Get the Ki parameter
+   * 
+   * @return float_t 
+   */
+  float_t GetKi() const;
+
+  /**
+   * @brief Get the Kd par
+   * 
+   * @return float_t 
+   */
+  float_t GetKd() const;
 
 
 private:
@@ -159,5 +187,9 @@ private:
 
   /* Sample time in milliseconds*/
   uint32_t m_sampleTime;
+
+  float_t m_userKp; /** User (P)roportional Tuning Parameter */
+  float_t m_userKi; /** User (I)ntegral Tuning Parameter */
+  float_t m_userKd; /** User (D)erivative Tuning Parameter */
 };
 #endif /* LIB_PID */

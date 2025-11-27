@@ -2,6 +2,7 @@
 #include <WiFiManager.h>
 #include <ESP8266mDNS.h>
 #include <timeSync.h>
+#include <TZ.h>
 #include "Logger.h"
 #include "Network.h"
 
@@ -20,7 +21,24 @@ void Network::begin(void)
     WiFiManager.begin(hostname_c_str);
 
     // NTP time sync init
-    timeSync.begin();
+    timeSync.begin(TZ_Europe_Paris);
+
+     //Wait 10s for connection
+    timeSync.waitForSyncResult(10000);
+
+    if (timeSync.isSynced())
+    {
+        char date[80];
+        time_t now = time(nullptr);
+        struct tm *timeinfo = localtime(&now);
+        
+        strftime(date, 80, "%c", timeinfo);  // Locale's date/time
+        Logger::log(LogLevel::INFO, "NTP synced, time is %s", date);
+    }
+    else 
+    {
+        Logger::log(LogLevel::ERROR, "Timeout while receiving the time from NTP server");
+    }
 
     // mDNS init works out of the box for Ubuntu, Windows/Android may need additional steps ...
     mdnsBegin(hostname_c_str);

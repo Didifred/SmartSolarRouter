@@ -4,12 +4,13 @@
 #include <stdint.h>
 #include "libPID.h"
 #include "hwConfig.h"
+#include "routerConfig.h"
 
 
 class Dimmer
 {
 public:
-    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = 50);
+    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = 50, uint16_t sampleTime = 250);
     ~Dimmer();
 
     /**

@@ -5,7 +5,7 @@
 #include "libPID.h"
 
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency) : m_pid(0.5f, 0.0f, 0.0f, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t sampleTime) : m_pid(0.4f, 1.5f, 0.0f, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
@@ -25,10 +25,15 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency) : m_pid(0.5f, 0.0f, 0.
     m_pinMapping[i] = 0;
   }
 
-  // TODO setup it dynamically
+  // TODO setup it with configuration values in EEPROM
   m_pid.SetOutputLimits(0, 3000);
+  m_pid.SetSampleTime(sampleTime);
 
-  m_pid.SetSampleTime(1000/gridFrequency);
+  // Initialize dashboard PID values for simulation
+  dash.data.Kp = m_pid.GetKp();
+  dash.data.Ki = m_pid.GetKi();
+  dash.data.Kd = m_pid.GetKd();
+  dash.data.solarPowerSimul = 1500.0f;
 }
 
 Dimmer::~Dimmer()
@@ -67,19 +72,61 @@ void Dimmer::turnOn(void)
   m_state = true;
 }
 
+
 void Dimmer::update(float_t gridPower)
 { 
-  static float_t HeaterPower = 0.0f;
+  static float_t  HeaterPower = 0.0f;
+  static float_t  InstantHeaterPower[NB_PID_SAMPLES] = {0.0f};
+  static uint8_t  DelayMeasureCount = 0;
+  static uint16_t InputCount = 0;
 
-  // Simulate a solar production of 1500 W 
-  gridPower -= 1500;
+  // Simulate a solar production of 1500 W during first 10s
+  if (InputCount < (10000 / m_pid.GetSampleTime()))
+  {
+    gridPower -= dash.data.solarPowerSimul;
+  }
+  InputCount++;
+
+  if (InputCount >  (20000 / m_pid.GetSampleTime()))
+  {
+    InputCount = 0;
+  }
+  
+  // Simulation retroaction 500ms
+  if (DelayMeasureCount >= NB_PID_SAMPLES)
+  {
+    HeaterPower = 0;
+    for (uint8_t i = 0; i < NB_PID_SAMPLES; i++)
+    {
+      HeaterPower += InstantHeaterPower[i];
+    }
+    HeaterPower /= NB_PID_SAMPLES;
+    DelayMeasureCount = 0;
+  }
   gridPower += HeaterPower;
 
-  HeaterPower = m_pid.Compute(gridPower, -50);
+  
+  // Check if parameters changes
+  if (m_pid.GetKp() != dash.data.Kp ||
+      m_pid.GetKi() != dash.data.Ki ||
+      m_pid.GetKd() != dash.data.Kd )
+  {
+    Logger::log(LogLevel::INFO, "Dimmer: PID parameters updated Kp=%.3f Ki=%.3f Kd=%.3f",
+                dash.data.Kp, dash.data.Ki, dash.data.Kd);
 
-  // Update graphic on dashboard
-  dash.data.powerRouted = HeaterPower;
+    m_pid.SetTunings(dash.data.Kp, dash.data.Ki, dash.data.Kd);
 
+    m_pid.Initialize(gridPower, HeaterPower);
+  }
+
+  // PID compute
+  InstantHeaterPower[DelayMeasureCount] = m_pid.Compute(gridPower, -50);
+
+
+  Logger::plot("Dimmer.GridPower", String(gridPower), "W");
+  Logger::plot("Dimmer.HeaterPower", String(InstantHeaterPower[DelayMeasureCount]), "W");
+
+  DelayMeasureCount++;
 }
 
 IRAM_ATTR void Dimmer::updateChannelsOutput(void)

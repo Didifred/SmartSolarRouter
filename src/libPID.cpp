@@ -73,8 +73,12 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
 {
    bool success = false;
 
-   if (Kp>=0 && Ki>=0 && Kd>=0)
+   if (Kp>=0.0f && Ki>=0.0f && Kd>=0.0f)
    {
+      m_userKp = Kp;
+      m_userKi = Ki; 
+      m_userKd = Kd;
+
       m_proportionalOption = ProportionalOption;
       m_controllerDirection = ControllerDirection;
 
@@ -102,15 +106,35 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd)
     return (SetTunings(Kp, Ki, Kd, m_proportionalOption, m_controllerDirection)); 
 }
 
+float_t PID::GetKp() const
+{
+   return m_userKp;
+}
+
+float_t PID::GetKi() const
+{
+   return m_userKi;
+}
+
+float_t PID::GetKd() const
+{
+   return m_userKd;
+}  
+
 
 void PID::SetSampleTime(uint32_t NewSampleTime)
 {
-
    float_t ratio  = (float_t)NewSampleTime / m_sampleTime;
+   
    m_ki *= ratio;
    m_kd /= ratio;
 
    m_sampleTime = NewSampleTime;
+}
+
+uint32_t PID::GetSampleTime() const
+{
+   return m_sampleTime;
 }
 
 bool PID::SetOutputLimits(float_t Min, float_t Max)

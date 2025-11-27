@@ -28,11 +28,11 @@ public:
     static void checkEspFlash(void);
 
     /**
-     * @brief Initialize a hardware timer to call a user function at a specified grid frequency.
-     * @param gridFrequency The grid frequency in Hz.
+     * @brief Initialize a hardware timer to call a user function at a specified frequency.
+     * @param gridFrequency The frequency in Hz.
      * @param userFunc The user function to be called by the timer interrupt.
      */
-    static void initHwTimer(uint8_t gridFrequency, timercallback userFunc);
+    static void initHwTimer(uint8_t frequency, timercallback userFunc);
 
     /**
      * @brief Disables the hardware timer interrupts.
