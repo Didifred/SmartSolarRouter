@@ -45,7 +45,7 @@ Task m_taskManager(   50 * TASK_MILLISECOND, TASK_FOREVER,  &ManagerCbk,    &m_r
 Task m_taskBackground(25 * TASK_MILLISECOND, TASK_FOREVER,  &BackgroundCbk, &m_runnerP0);
 
 /** High prio tasks execution */
-//First get Shelly power, then filter it with PID
+/** First get Shelly power, then filter it with PID*/
 Task m_taskGetPower(POWER_GRID_MEASURE_PERIOD_MS * TASK_MILLISECOND, TASK_FOREVER, &GetShellyPowerCbk, &m_runnerP1);
 Task m_taskPidFilter((POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES) * TASK_MILLISECOND, TASK_FOREVER, &PidFilterCbk, &m_runnerP1);
 
@@ -56,7 +56,8 @@ WiFiClient espClient;
 Shelly m_shelly(espClient);
 
 /** Dimmer */
-Dimmer m_dimmer(3, POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES); // 3 channels, grid frequency, PID sample time
+/** 3 channels, grid frequency, PID sample time, Measure period (TODO)*/
+Dimmer m_dimmer(3, POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES, POWER_GRID_MEASURE_PERIOD_MS * 2); 
 
 /** UDP over wifi */
 WiFiUDP m_udp;
@@ -182,6 +183,7 @@ void ManagerCbk(void)
   }
 }
 
+/*Called every POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES  = 100 ms*/
 void PidFilterCbk(void)
 {
   m_dimmer.update(m_shelly.getActivePower());

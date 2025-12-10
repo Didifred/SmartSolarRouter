@@ -10,7 +10,8 @@
 class Dimmer
 {
 public:
-    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = 50, uint16_t sampleTime = 250);
+    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = 50, 
+           uint16_t samplePeriod = 250, uint16_t measurePeriod = 1000);
     ~Dimmer();
 
     /**
@@ -56,12 +57,25 @@ public:
 
 private:
 
+    void initOutputsArray(float_t value);
+
+    float_t simulate(float gridPower, float_t outputsAvg);
+    float_t getOutputsAverage(void);
+
     uint8_t m_nbChannels;
     uint8_t m_gridFrequency;
-    bool m_state; // ON or OFF
-    bool* m_ssrPinStates; // Array of boolean of size m_nbChannels
-    uint8_t *m_pinMapping; // Pin affectation to channels
+    uint16_t m_measurePeriod;
+    bool m_state; /** ON or OFF */
+    bool* m_ssrPinStates; /** Array of boolean, size is m_nbChannels*/
+    bool m_simuOn;
+    uint8_t *m_pinMapping; /** Pin affectation to channels */
+    float_t*  m_outputs; /** Array of float_t, size is m_outputs_array_size */
+    uint8_t m_outputs_array_size; /** m_measurePeriod / samplePeriod */
+    uint8_t m_outputs_index;
+    float_t m_previousGridPower;
+    float_t m_lastAvgOutput;
     PID m_pid;
+    
 };
 
 

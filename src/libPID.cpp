@@ -1,21 +1,21 @@
-/**********************************************************************************************
- * Arduino PID Library - Version 1.2.1
- * original version by Brett Beauregard <br3ttb@gmail.com> brettbeauregard.com
- * Code re-writen by Didifred (https://github.com/Didifred)
- *
- * This Library is licensed under the MIT License
- **********************************************************************************************/
-
+/**
+ * @file libPID.cpp
+ * @author Freddy Boutin (https://github.com/Didifred/)
+ *         Original version by: Brett Beauregard <br3ttb@gmail.com> brettbeauregard.com
+ **/
 #include <stdint.h>
 #include <math.h>
 #include "libPID.h"
+#include "Logger.h"
 
 
-PID::PID(float_t Kp, float_t Ki, float_t Kd, 
-         PidProportionalOption ProportionalOption, PidDirection ControllerDirection)
+PID::PID(float_t Kp, float_t Ki, float_t Kd,
+         PidProportionalOption ProportionalOption,
+         PidDirection ControllerDirection)
 {
     m_lastInput = 0.0f;
     m_outputSum = 0.0f;
+    m_lastInput = 0.0f;
 
     // default output limit corresponds to the arduino pwm limits
     PID::SetOutputLimits(0, 255);				
@@ -26,7 +26,6 @@ PID::PID(float_t Kp, float_t Ki, float_t Kd,
     PID::SetTunings(Kp, Ki, Kd, ProportionalOption, ControllerDirection);
 }
 
-
 PID::PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
     :PID::PID( Kp, Ki, Kd, PidProportionalOption::ON_ERROR, ControllerDirection)
 {
@@ -35,32 +34,34 @@ PID::PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
 
 float_t PID::Compute(float_t Input, float_t Setpoint)
 {
-   // Compute all the working error variables
-   float_t error = Setpoint - Input;
+   float_t error = (Setpoint - Input);
    float_t dInput = (Input - m_lastInput);
    float_t output = 0.0f;
-      
+   float_t saturationError = 0.0;
+
+   // Integral term (accumulate error over time)
    m_outputSum += (m_ki * error);
 
-   // Add Proportional on Measurement, if PidProportionalOption::ON_MEASUREMENT is specified
-   if (m_proportionalOption == PidProportionalOption::ON_MEASUREMENT)
-   {
-      m_outputSum -= m_kp * dInput;
-   }
-
-   Clamp(&m_outputSum);
-
-   // Add Proportional on Error, if PidProportionalOption::ON_ERROR is specified
+   // Proportional term
    if (m_proportionalOption == PidProportionalOption::ON_ERROR)
    {
-      output = m_kp * error;
+      output = (m_kp * error);
    }
+   else 
+   {
+      // PidProportionalOption::ON_MEASUREMENT
+      m_outputSum = -(m_kp * dInput);
+   }
+   // Calculate total output (P + I + D)
+   // Note: to avoid derivative kick on setpoint change, derivative is done on measurement
+   output += m_outputSum - (m_kd * dInput);
+   saturationError = Clamp(&output, m_outMin, m_outMax);
 
-   // Compute Rest of PID Output
-   output += m_outputSum - m_kd * dInput;
-
-   Clamp(&output);
-	   
+   // Back-calculation : compensate  integral due to output saturation
+   m_outputSum -= (m_kt * saturationError);
+   Clamp(&m_outputSum, m_outMin, m_outMax);
+   Logger::plot("Dimmer.outputSum", String(m_outputSum), "W");
+   
    // Remember some variables for next time
    m_lastInput = Input;
 
@@ -78,7 +79,7 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
       m_userKp = Kp;
       m_userKi = Ki; 
       m_userKd = Kd;
-
+      
       m_proportionalOption = ProportionalOption;
       m_controllerDirection = ControllerDirection;
 
@@ -86,6 +87,18 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
       m_kp = Kp;
       m_ki = Ki * SampleTimeInSec;
       m_kd = Kd / SampleTimeInSec;
+
+      if (m_kp > 0.0f)
+      {
+         // Anti-windup standard tuning
+         m_kt = m_ki / Kp; 
+      }
+      else
+      {
+         m_kt = 1.0f;
+      }
+      Logger::log(LogLevel::DEBUG, "PID: SetTunings Kp=%.3f Ki=%.3f Kd=%.3f Kt=%.3f",
+                  Kp, Ki, Kd, m_kt);
 
       if(ControllerDirection == PidDirection::REVERSE)
       {
@@ -103,7 +116,7 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
 
 bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd)
 {
-    return (SetTunings(Kp, Ki, Kd, m_proportionalOption, m_controllerDirection)); 
+    return (SetTunings(Kp, Ki, Kd, m_proportionalOption,  m_controllerDirection)); 
 }
 
 float_t PID::GetKp() const
@@ -154,10 +167,10 @@ bool PID::SetOutputLimits(float_t Min, float_t Max)
 
 void PID::Initialize(float_t Input, float_t Output)
 {
-   m_outputSum = Output;
    m_lastInput = Input;
 
-   Clamp(&m_outputSum);
+   Clamp(&Output, m_outMin, m_outMax);
+   m_outputSum = Output;
 }
 
 /**
@@ -165,16 +178,22 @@ void PID::Initialize(float_t Input, float_t Output)
  * 
  * @param Value 
  */
-void PID::Clamp(float* Value)
+float_t PID::Clamp(float_t* Value, float_t Min, float_t Max)
 {
-   if (*Value > m_outMax)
+   float_t saturationError = 0.0f;
+
+   if (*Value > Max)
    {
-      *Value = m_outMax;
+      saturationError = *Value - Max;
+      *Value = Max;
    }
-   else if(*Value < m_outMin) 
+   else if (*Value < Min) 
    {
-      *Value = m_outMin;
+      saturationError = *Value - Min;
+      *Value = Min;
    }
+
+   return saturationError;
 }
 
 

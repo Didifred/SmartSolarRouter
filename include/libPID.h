@@ -1,10 +1,16 @@
 #ifndef LIB_PID
 #define LIB_PID
 
-#define PID_LIBRARY_VERSION "1.2.1"
+#define PID_LIBRARY_VERSION "1.3.0"
 
 #include <math.h>
 
+
+enum class PidDirection
+{
+    DIRECT = 0,
+    REVERSE
+};
 
 enum class PidProportionalOption
 {
@@ -12,11 +18,8 @@ enum class PidProportionalOption
     ON_ERROR
 };
 
-enum class PidDirection
-{
-    DIRECT = 0,
-    REVERSE
-};
+//#define PID_INCREMENTAL
+
 
 class PID
 {
@@ -37,10 +40,11 @@ public:
    * @param ControllerDirection Sets the controller action direction (e.g. DIRECT or REVERSE).
    *                            Type: PidDirection.
    */
-  PID(float_t Kp, float_t Ki, float_t Kd, 
-      PidProportionalOption ProportionalOption, PidDirection ControllerDirection);
+  PID(float_t Kp, float_t Ki, float_t Kd,
+      PidProportionalOption ProportionalOption,
+      PidDirection ControllerDirection);
 
-  /**
+   /**
    * @brief  Constructs and initializes a PID controller instance with proportional-on-error option.
    *
    * Creates a PID controller using the provided tuning parameters and controller options.
@@ -54,7 +58,6 @@ public:
    */
   PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection);
 
-
   /**
    * @brief Perform the PID control calculation and update the output.
    * 
@@ -65,7 +68,6 @@ public:
    */
   float_t Compute(float_t Input, float_t Setpoint); 
 
-
   /**
    * @brief Configure the allowable range for the controller output.
    *
@@ -74,7 +76,7 @@ public:
    * term is adjusted as needed to prevent integral wind-up when the limits change.
    *
    * @param Min The lower bound of the output (inclusive).
-   * @param mMx The upper bound of the output (inclusive).
+   * @param Max The upper bound of the output (inclusive).
    * 
    * @return true if success (Min < Max)
    */
@@ -111,7 +113,6 @@ public:
                   PidProportionalOption ProportionalOption,
                   PidDirection controllerDirection);
 
-  
   /**
    * @brief Set the PID controller's sample time (control loop period).
    *
@@ -164,11 +165,12 @@ public:
 
 private:
 
-  void Clamp(float* value);
+  float_t Clamp(float_t* Value, float_t Min, float_t Max);
 
   float_t m_kp; /** (P)roportional Tuning Parameter */
   float_t m_ki; /** (I)ntegral Tuning Parameter */
   float_t m_kd; /** (D)erivative Tuning Parameter */
+  float_t m_kt; /** (T)racking Anti-windup Tuning Parameter */
 
   /**  Either apply proportional on error or on measurement */
   PidProportionalOption m_proportionalOption;
@@ -179,8 +181,8 @@ private:
   PidDirection m_controllerDirection; 
 
   /** Internal variables of the PID controller */
-  float_t m_outputSum;
   float_t m_lastInput;
+  float_t m_outputSum;
 
   /** In order to clamp output */
   float_t m_outMin, m_outMax;

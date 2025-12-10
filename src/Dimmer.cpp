@@ -5,7 +5,8 @@
 #include "libPID.h"
 
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t sampleTime) : m_pid(0.4f, 1.5f, 0.0f, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : 
+        m_pid(0.25f, 0.9f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
@@ -15,9 +16,15 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t sampleTime) :
   }
   m_nbChannels = nbChannels;
   m_gridFrequency = gridFrequency;
+  m_measurePeriod = measurePeriod;
   m_ssrPinStates = new bool[nbChannels];
   m_pinMapping = new uint8_t[nbChannels];
+  m_outputs_array_size = measurePeriod / samplePeriod;
+  m_outputs = new float_t[m_outputs_array_size];
+  m_outputs_index = 0;
+  m_previousGridPower = 0.0f;
   m_state = false;
+  m_simuOn = true;
 
   for (uint8_t i = 0; i < nbChannels; i++)
   {
@@ -25,9 +32,11 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t sampleTime) :
     m_pinMapping[i] = 0;
   }
 
-  // TODO setup it with configuration values in EEPROM
-  m_pid.SetOutputLimits(0, 3000);
-  m_pid.SetSampleTime(sampleTime);
+  initOutputsArray(0.0f);
+
+  // TODO setup it with configuration values in EEPROM / add an API in order to set it from main
+  m_pid.SetOutputLimits(0, 2400);
+  m_pid.SetSampleTime(samplePeriod);
 
   // Initialize dashboard PID values for simulation
   dash.data.Kp = m_pid.GetKp();
@@ -40,6 +49,7 @@ Dimmer::~Dimmer()
 {
   delete[] m_ssrPinStates;
   delete[] m_pinMapping;
+  delete[] m_outputs;
 } 
 
 void Dimmer::mapChannelToPin(uint8_t channel, uint8_t pin)
@@ -72,39 +82,71 @@ void Dimmer::turnOn(void)
   m_state = true;
 }
 
+float_t Dimmer::getOutputsAverage(void)
+{
+  float_t avg = 0.0f;
 
-void Dimmer::update(float_t gridPower)
-{ 
-  static float_t  HeaterPower = 0.0f;
-  static float_t  InstantHeaterPower[NB_PID_SAMPLES] = {0.0f};
-  static uint8_t  DelayMeasureCount = 0;
-  static uint16_t InputCount = 0;
+  for (uint8_t i = 0; i < m_outputs_array_size; i++)
+  {
+    avg += m_outputs[i];
+  }
+  avg /= m_outputs_array_size;
 
-  // Simulate a solar production of 1500 W during first 10s
-  if (InputCount < (10000 / m_pid.GetSampleTime()))
+  return avg;
+} 
+
+float_t Dimmer::simulate(float_t gridPower, float_t outputsAvg)
+{
+  static uint16_t m_simulCount = 0;
+  
+  // Simulate a solar production during first 20s and then no solar production
+  if (m_simulCount < (20000 / m_pid.GetSampleTime()))
   {
     gridPower -= dash.data.solarPowerSimul;
   }
-  InputCount++;
+  m_simulCount++;
 
-  if (InputCount >  (20000 / m_pid.GetSampleTime()))
+  if (m_simulCount > (40000 / m_pid.GetSampleTime()))
   {
-    InputCount = 0;
+    m_simulCount = 0;
   }
-  
-  // Simulation retroaction 500ms
-  if (DelayMeasureCount >= NB_PID_SAMPLES)
+
+  // Simulation of shelly measure (retroaction)
+  if (gridPower < 50.0f)
   {
-    HeaterPower = 0;
-    for (uint8_t i = 0; i < NB_PID_SAMPLES; i++)
+    gridPower += outputsAvg;
+  }
+
+  return gridPower;
+}
+
+void Dimmer::update(float_t gridPower)
+{ 
+  float_t avg = 0.0f;
+
+  Logger::plot("Dimmer.GridPowerIn", String(gridPower), "W");
+
+  avg = getOutputsAverage();
+
+  if (m_simuOn == false)
+  {
+    if (gridPower != m_previousGridPower)
     {
-      HeaterPower += InstantHeaterPower[i];
+      m_previousGridPower = gridPower;
+      m_lastAvgOutput = avg;
     }
-    HeaterPower /= NB_PID_SAMPLES;
-    DelayMeasureCount = 0;
+    else
+    {
+      // Estimate gridPower based on last average output variation
+      gridPower += (avg - m_lastAvgOutput);
+    }
   }
-  gridPower += HeaterPower;
-
+  else
+  {
+    gridPower = simulate(gridPower, avg);
+  } 
+  
+  Logger::plot("Dimmer.GridPowerEstimated", String(gridPower), "W");
   
   // Check if parameters changes
   if (m_pid.GetKp() != dash.data.Kp ||
@@ -115,19 +157,28 @@ void Dimmer::update(float_t gridPower)
                 dash.data.Kp, dash.data.Ki, dash.data.Kd);
 
     m_pid.SetTunings(dash.data.Kp, dash.data.Ki, dash.data.Kd);
-
-    m_pid.Initialize(gridPower, HeaterPower);
+    m_pid.Initialize(gridPower, avg);
   }
 
   // PID compute
-  InstantHeaterPower[DelayMeasureCount] = m_pid.Compute(gridPower, -50);
+  if (gridPower < 50.0f)
+  {
+    m_outputs[m_outputs_index] = m_pid.Compute(gridPower, -50.0f);
+    /*The first time initialize all avg array ?*/
+  }
+  else
+  {
+    m_pid.Initialize(gridPower, 0.0f);
+    initOutputsArray(0.0f);
+  }
+  Logger::plot("Dimmer.InstantHeaterPower", String(m_outputs[m_outputs_index]), "W");
 
+  // Post 4 commands at t=0, +250ms, +500ms, +750ms
 
-  Logger::plot("Dimmer.GridPower", String(gridPower), "W");
-  Logger::plot("Dimmer.HeaterPower", String(InstantHeaterPower[DelayMeasureCount]), "W");
-
-  DelayMeasureCount++;
+  m_outputs_index = (m_outputs_index +1) % m_outputs_array_size;
 }
+
+
 
 IRAM_ATTR void Dimmer::updateChannelsOutput(void)
 {
@@ -164,4 +215,18 @@ IRAM_ATTR void Dimmer::updateChannelsOutput(void)
       digitalWrite(m_pinMapping[i], LOW);
     }
   }
+}
+
+/**  Private */
+
+/**
+ * @brief Initialize the outputs array to zero
+ * 
+ */
+void Dimmer::initOutputsArray(float_t value)
+{
+  for (uint8_t i = 0; i < m_outputs_array_size; i++)
+  {
+    m_outputs[i] = value;
+  } 
 }
