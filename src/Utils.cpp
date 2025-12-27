@@ -44,11 +44,9 @@ void Utils::initHwTimer(uint8_t frequency, timercallback userFunc)
 void Utils::disableHwTimer(void)
 {
   timer1_disable();
-  Logger::log(LogLevel::INFO, "Disabled ISR timer1");
 }
 
 void Utils::enableHwTimer(void)
 {
   timer1_enable(TIM_DIV1, TIM_EDGE, TIM_LOOP);
-  Logger::log(LogLevel::INFO, "Enabled ISR timer1");
 }

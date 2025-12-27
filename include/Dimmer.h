@@ -10,7 +10,7 @@
 class Dimmer
 {
 public:
-    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = 50, 
+    Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = POWER_GRID_FREQUENCY_HZ, 
            uint16_t samplePeriod = 250, uint16_t measurePeriod = 1000);
     ~Dimmer();
 
@@ -27,10 +27,30 @@ public:
     IRAM_ATTR void updateChannelsOutput(void);
 
     /**
+     * @brief Set the Pid Parameters 
+     * 
+     * @param Kp    Proportional parameter
+     * @param Ki    Integral parameter
+     * @param Kd    Derivative parameter
+     */
+    void setPidParameters(float_t Kp, float_t Ki, float_t Kd);
+
+    /**
+     * @brief Get the Pid Parameters
+     * 
+     * @param Kp  Proportional parameter
+     * @param Ki  Integral parameter
+     * @param Kd  Derivative parameter
+     */
+    void getPidParameters(float_t& Kp, float_t& Ki, float_t& Kd);
+
+
+    /**
      * @brief Compute and update power to be applied on the channels
      * @param gridPower   Grid power measurement
+     * @return float_t   The power routed
      */
-    void update(float_t gridPower);
+    float_t update(float_t gridPower);
 
     /**
      * @brief Associate a logical dimmer channel with a physical MCU pin.
@@ -39,11 +59,27 @@ public:
      * performed on the specified dimmer channel. After calling this function,
      * references to the channel should affect the configured pin.
      *
-     * @param channel Logical channel identifier (typically 0-based). 
-     * @param pin     Hardware pin number (board-specific numbering) to bind to
-     *                the channel.
+     * @param channel Logical channel identifier (0-based). 
+     * @param pin     Hardware pin number (board-specific numbering) to bind to the channel.
+     * @return true if the mapping was successful; false if the channel index is out of range.
      */
-    void mapChannelToPin(uint8_t channel, uint8_t pin);
+    bool mapChannelToPin(uint8_t channel, uint8_t pin);
+
+    /**
+     * @brief Set the resistive power affectated to a channel
+     * 
+     * @param channel Logical channel identifier (0-based). 
+     * @param power   Power in W
+     * @return true if the power was set successfully; false if the channel index is out of range.
+     */
+    bool setChannelPower(uint8_t channel, uint16_t power);
+
+    /**
+     * @brief Set the maximum power driven by the dimmer in W
+     * 
+     * @param max Maximum output power.
+     */
+    void setMaxOutputPower(uint16_t max);
 
     /**
      * @brief Turn the dimmer outputs off.
@@ -59,19 +95,25 @@ private:
 
     void initOutputsArray(float_t value);
 
-    float_t simulate(float gridPower, float_t outputsAvg);
+    float_t simulateSolarProduction(float gridPower);
+    float_t simulateRetroaction(float_t gridPower, float_t outputsAvg);
     float_t getOutputsAverage(void);
 
-    uint8_t m_nbChannels;
-    uint8_t m_gridFrequency;
-    uint16_t m_measurePeriod;
-    bool m_state; /** ON or OFF */
-    bool* m_ssrPinStates; /** Array of boolean, size is m_nbChannels*/
-    bool m_simuOn;
-    uint8_t *m_pinMapping; /** Pin affectation to channels */
-    float_t*  m_outputs; /** Array of float_t, size is m_outputs_array_size */
-    uint8_t m_outputs_array_size; /** m_measurePeriod / samplePeriod */
-    uint8_t m_outputs_index;
+    uint8_t m_nbChannels;       /** Number of output channels */
+    uint8_t m_gridFrequency;    /** The frequency of the grid'power */
+    uint16_t m_measurePeriod;   /** The period of the grid measure */
+    uint16_t m_samplePeriod;    /** The sample period of PID  */
+    bool m_state;               /** Global state ON or OFF */
+    bool m_paramsChanged;       /** Flag to indicate PID parameters have changed */    
+    bool m_simuOn;              /** Simulation of solar production */
+    uint16_t* m_ssrTimer;       /** Array of timers to control ssr pins ON or OFF, size is m_nbChannels*/
+    uint16_t* m_channelPower;   /** Resistive power of each channels, size is m_nbChannels */
+   
+    uint8_t*  m_pinMapping;     /** Pin affectation to channels, size is m_nbChannels */
+    float_t*  m_outputs;        /** Array of float_t, size is m_outputsArraySize */
+    float_t m_outputError;      /** Retained error for decimation outputs calculation */
+    uint8_t m_outputsArraySize; /** Size is m_measurePeriod / samplePeriod */
+    uint8_t m_outputsIndex;     /** Current index of m_outputs array*/
     float_t m_previousGridPower;
     float_t m_lastAvgOutput;
     PID m_pid;

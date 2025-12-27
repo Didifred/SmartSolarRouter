@@ -29,7 +29,7 @@ public:
   /**
    * @brief Constructs and initializes a PID controller instance.
    *
-   * Creates a PID controller using the provided tuning parameters and controller options.
+   * Creates a PID controller using the provided parameters and controller options.
    *
    * @param Kp Proportional gain.
    * @param Ki Integral gain.
@@ -47,7 +47,7 @@ public:
    /**
    * @brief  Constructs and initializes a PID controller instance with proportional-on-error option.
    *
-   * Creates a PID controller using the provided tuning parameters and controller options.
+   * Creates a PID controller using the provided parameters and controller options.
    *
    * @param Kp Proportional gain.
    * @param Ki Integral gain.
@@ -83,7 +83,7 @@ public:
   bool SetOutputLimits(float_t Min, float_t Max);
 
   /**
-   * @brief Configure the PID controller tuning parameters.
+   * @brief Configure the PID controller parameters.
    *
    * Sets the proportional, integral and derivative gains. 
    *
@@ -93,10 +93,10 @@ public:
    * 
    * @return true if success (parameters needs to be positives)
    */
-  bool SetTunings(float_t Kp, float_t Ki, float_t Kd);
+  bool SetParameters(float_t Kp, float_t Ki, float_t Kd);
 
   /**
-   * @brief Configure the PID controller tuning parameters.
+   * @brief Configure the PID controller parameters.
    *
    * Sets the proportional, integral and derivative gains and selects how the
    * proportional action is applied and the controller action direction.
@@ -109,9 +109,9 @@ public:
    * 
    * @return true if success (parameters needs to be positives)
    */
-  bool SetTunings(float_t Kp, float_t Ki, float_t Kd, 
-                  PidProportionalOption ProportionalOption,
-                  PidDirection controllerDirection);
+  bool SetParameters(float_t Kp, float_t Ki, float_t Kd, 
+                     PidProportionalOption ProportionalOption,
+                     PidDirection controllerDirection);
 
   /**
    * @brief Set the PID controller's sample time (control loop period).
@@ -167,10 +167,10 @@ private:
 
   float_t Clamp(float_t* Value, float_t Min, float_t Max);
 
-  float_t m_kp; /** (P)roportional Tuning Parameter */
-  float_t m_ki; /** (I)ntegral Tuning Parameter */
-  float_t m_kd; /** (D)erivative Tuning Parameter */
-  float_t m_kt; /** (T)racking Anti-windup Tuning Parameter */
+  float_t m_kp; /** (P)roportional Parameter */
+  float_t m_ki; /** (I)ntegral Parameter */
+  float_t m_kd; /** (D)erivative Parameter */
+  float_t m_kt; /** (T)racking Anti-windup Parameter */
 
   /**  Either apply proportional on error or on measurement */
   PidProportionalOption m_proportionalOption;
@@ -190,8 +190,8 @@ private:
   /* Sample time in milliseconds*/
   uint32_t m_sampleTime;
 
-  float_t m_userKp; /** User (P)roportional Tuning Parameter */
-  float_t m_userKi; /** User (I)ntegral Tuning Parameter */
-  float_t m_userKd; /** User (D)erivative Tuning Parameter */
+  float_t m_userKp; /** User (P)roportional Parameter */
+  float_t m_userKi; /** User (I)ntegral Parameter */
+  float_t m_userKd; /** User (D)erivative Parameter */
 };
 #endif /* LIB_PID */

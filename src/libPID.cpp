@@ -23,7 +23,7 @@ PID::PID(float_t Kp, float_t Ki, float_t Kd,
     //default Controller Sample Time is 0.1 seconds
     m_sampleTime = 100;
     						
-    PID::SetTunings(Kp, Ki, Kd, ProportionalOption, ControllerDirection);
+    PID::SetParameters(Kp, Ki, Kd, ProportionalOption, ControllerDirection);
 }
 
 PID::PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
@@ -68,9 +68,9 @@ float_t PID::Compute(float_t Input, float_t Setpoint)
    return (output);
 }
 
-bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd, 
-                     PidProportionalOption ProportionalOption,
-                     PidDirection ControllerDirection)
+bool PID::SetParameters(float_t Kp, float_t Ki, float_t Kd, 
+                        PidProportionalOption ProportionalOption,
+                        PidDirection ControllerDirection)
 {
    bool success = false;
 
@@ -97,7 +97,7 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
       {
          m_kt = 1.0f;
       }
-      Logger::log(LogLevel::DEBUG, "PID: SetTunings Kp=%.3f Ki=%.3f Kd=%.3f Kt=%.3f",
+      Logger::log(LogLevel::DEBUG, "PID: SetParameters Kp=%.3f Ki=%.3f Kd=%.3f Kt=%.3f",
                   Kp, Ki, Kd, m_kt);
 
       if(ControllerDirection == PidDirection::REVERSE)
@@ -114,9 +114,9 @@ bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd,
 }
 
 
-bool PID::SetTunings(float_t Kp, float_t Ki, float_t Kd)
+bool PID::SetParameters(float_t Kp, float_t Ki, float_t Kd)
 {
-    return (SetTunings(Kp, Ki, Kd, m_proportionalOption,  m_controllerDirection)); 
+    return (SetParameters(Kp, Ki, Kd, m_proportionalOption,  m_controllerDirection)); 
 }
 
 float_t PID::GetKp() const

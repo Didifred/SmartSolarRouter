@@ -41,7 +41,6 @@ uint16_t Logger::m_udpPort   = 0;
 uint64_t Logger::m_baseTimeEpochMs = 0;
 uint32_t Logger::m_baseMillis = 0;
 
-
 void Logger::init(void)
 {
     Serial.println("");

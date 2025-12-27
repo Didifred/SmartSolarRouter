@@ -47,8 +47,6 @@ public:
     /**
      * @brief Initializes the Logger module.
      * 
-     * @param udp
-     * @param hostIp
      */
     static void init(void);
 

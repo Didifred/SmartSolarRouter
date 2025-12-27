@@ -12,4 +12,8 @@
 /** Maximum of channels to be allocated to one dimmer instance  */ 
 #define MAX_DIMMER_CHANNELS 3
 
+/** Logical levels for SSRs */
+#define LOGICAL_HIGH    HIGH
+#define LOGICAL_LOW     LOW
+
 #endif // HW_CONFIG_H */
