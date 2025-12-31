@@ -4,21 +4,22 @@
 #include "Logger.h"
 #include "libPID.h"
 
-
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : 
-        m_pid(0.25f, 0.9f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : m_pid(0.25f, 0.9f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
     Logger::log(LogLevel::WARNING, "Dimmer: nbChannels (%d) exceeds MAX_DIMMER_CHANNELS (%d). \
-                                    Limiting to MAX_DIMMER_CHANNELS.", nbChannels, MAX_DIMMER_CHANNELS);
+                                    Limiting to MAX_DIMMER_CHANNELS.",
+                nbChannels, MAX_DIMMER_CHANNELS);
     nbChannels = MAX_DIMMER_CHANNELS;
   }
   m_nbChannels = nbChannels;
   m_gridFrequency = gridFrequency;
   m_measurePeriod = measurePeriod;
   m_samplePeriod = samplePeriod;
+  m_nbHalfPeriodsPerSample = (m_samplePeriod / (1000 / (m_gridFrequency * 2)));
   m_ssrTimer = new uint16_t[nbChannels];
+  m_nextSsrTimer = new uint16_t[nbChannels];
   m_pinMapping = new uint8_t[nbChannels];
   m_channelPower = new uint16_t[nbChannels];
 
@@ -29,12 +30,14 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod,
   m_outputsIndex = 0;
   m_previousGridPower = 0.0f;
   m_state = false;
-  m_simuOn = true;
+  m_simuOn = false;
   m_paramsChanged = false;
+  m_ssrCycleTimer = 0;
 
   for (uint8_t i = 0; i < nbChannels; i++)
   {
     m_ssrTimer[i] = 0;
+    m_nextSsrTimer[i] = 0;
     m_pinMapping[i] = 0;
   }
 
@@ -42,9 +45,10 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod,
 
   m_pid.SetSampleTime(samplePeriod);
 
-  // Initialize dashboard PID values for simulation
-  dash.data.solarPowerSimul = 1500.0f;
-  dash.data.teleplotEnabled = false;
+  Logger::log(LogLevel::DEBUG, "Dimmer: gridFrequency=%i, measurePeriod=%i, samplePeriod=%i, \
+              nbHalfPeriodsPerSample=%i, outputsArraySize=%i",
+              m_gridFrequency, m_measurePeriod, m_samplePeriod,
+              m_nbHalfPeriodsPerSample, m_outputsArraySize);
 }
 
 Dimmer::~Dimmer()
@@ -52,7 +56,7 @@ Dimmer::~Dimmer()
   delete[] m_ssrTimer;
   delete[] m_pinMapping;
   delete[] m_outputs;
-} 
+}
 
 bool Dimmer::mapChannelToPin(uint8_t channel, uint8_t pin)
 {
@@ -66,7 +70,7 @@ bool Dimmer::mapChannelToPin(uint8_t channel, uint8_t pin)
 
     success = true;
   }
- 
+
   return success;
 }
 
@@ -102,54 +106,56 @@ void Dimmer::turnOff(void)
 void Dimmer::turnOn(void)
 {
   m_state = true;
+  m_ssrCycleTimer = 0;
 }
 
-void Dimmer::getPidParameters(float_t& Kp, float_t& Ki, float_t& Kd)
+void Dimmer::setSimuEnabled(bool enabled)
+{
+  m_simuOn = enabled;
+}
+
+void Dimmer::getPidParameters(float_t &Kp, float_t &Ki, float_t &Kd)
 {
   Kp = m_pid.GetKp();
   Ki = m_pid.GetKi();
   Kd = m_pid.GetKd();
-} 
+}
 
 void Dimmer::setPidParameters(float_t Kp, float_t Ki, float_t Kd)
 {
   m_pid.SetParameters(Kp, Ki, Kd);
 
   m_paramsChanged = true;
-} 
+}
 
 float_t Dimmer::update(float_t gridPower)
-{ 
+{
   float_t avg = 0.0f;
-  float_t instantPower = 0.0f;
-  float_t instantPowerAdj = 0.0f;
+  float_t outPower = 0.0f;
+  float_t outPowerAdj = 0.0f;
   uint16_t ssrTimers[m_nbChannels];
 
   Logger::plot("Dimmer.GridPowerIn", String(gridPower), "W");
 
   avg = getOutputsAverage();
 
-  if (m_simuOn == false)
+  if (gridPower != m_previousGridPower)
   {
-    if (gridPower != m_previousGridPower)
+    if (m_simuOn == true)
     {
-      m_previousGridPower = gridPower;
-      m_lastAvgOutput = avg;
+      // Simulate retroaction
+      gridPower += avg;
     }
-    else
-    {
-      // Estimate gridPower based on last average output variation
-      gridPower += (avg - m_lastAvgOutput);
-    }
+    m_previousGridPower = gridPower;
+    m_lastAvgOutput = avg;
   }
   else
   {
-    gridPower = simulateSolarProduction(gridPower);
-    gridPower = simulateRetroaction(gridPower, avg);
-  } 
-  
+    // Estimate gridPower based on last average output variation
+    gridPower += (avg - m_lastAvgOutput);
+  }
   Logger::plot("Dimmer.GridPowerEstimated", String(gridPower), "W");
-  
+
   /** Check if PID parameters changes */
   if (m_paramsChanged == true)
   {
@@ -158,30 +164,29 @@ float_t Dimmer::update(float_t gridPower)
   }
 
   /** PID compute */
-  instantPower = m_pid.Compute(gridPower, -50.0f);
-  m_outputs[m_outputsIndex] = instantPower;
-  Logger::plot("Dimmer.InstantHeaterPower", String(instantPower), "W");
+  outPower = m_pid.Compute(gridPower, -50.0f);
+  m_outputs[m_outputsIndex] = outPower;
+  Logger::plot("Dimmer.OutPower", String(outPower), "W");
 
   /** Compensate the output from previous calculation */
-  instantPowerAdj = instantPower + m_outputError;
+  outPowerAdj = outPower + m_outputError;
 
-  /** Compute timers values for SSRs based on instantPower */
-  uint16_t nbHalfPeriodsPerSample = (m_samplePeriod / (1000/(m_gridFrequency*2))) ;
-  for( uint8_t j=0; j < m_nbChannels; j++)
+  /** Compute timers values for SSRs based on outPower */
+  for (uint8_t j = 0; j < m_nbChannels; j++)
   {
-    if (instantPowerAdj >= m_channelPower[j])
+    if (outPowerAdj >= m_channelPower[j])
     {
       /** Full power for this channel */
-      ssrTimers[j] = nbHalfPeriodsPerSample*2;
-      instantPowerAdj -= m_channelPower[j];
+      ssrTimers[j] = m_nbHalfPeriodsPerSample * 2;
+      outPowerAdj -= m_channelPower[j];
     }
     else
     {
-      float_t pulseWidth = (instantPowerAdj / m_channelPower[j]) * nbHalfPeriodsPerSample;
+      float_t pulseWidth = (outPowerAdj / m_channelPower[j]) * m_nbHalfPeriodsPerSample;
       uint16_t pulseWidthInt = roundf(pulseWidth);
 
       /** Error due to quantization */
-      m_outputError = (((pulseWidth - (float_t)pulseWidthInt))*m_channelPower[j])/nbHalfPeriodsPerSample;
+      m_outputError = (((pulseWidth - (float_t)pulseWidthInt)) * m_channelPower[j]) / m_nbHalfPeriodsPerSample;
       Logger::plot("Dimmer.OutputError", String(m_outputError), "W");
 
       if (pulseWidthInt == 0)
@@ -194,46 +199,62 @@ float_t Dimmer::update(float_t gridPower)
         if (pulseWidthInt % 2 == 0)
         {
           /** Full sinus counts*/
-          ssrTimers[j] = pulseWidthInt*2 - 1;
+          ssrTimers[j] = pulseWidthInt * 2 - 1;
         }
         else
         {
           /** Half sinus counts*/
-          ssrTimers[j] = pulseWidthInt*2;
+          ssrTimers[j] = pulseWidthInt * 2;
         }
       }
 
       /** No power for the remaining channels */
-      for (uint8_t i=j+1;  i< m_nbChannels; i++)
+      for (uint8_t i = j + 1; i < m_nbChannels; i++)
       {
         ssrTimers[i] = 0;
       }
       break;
     }
-
-    Logger::plot("Dimmer.SsrTimers[" + String(j) + "]", String(ssrTimers[j]), "count");
   }
-  
+  Logger::plot("Dimmer.SsrTimers_0", String(ssrTimers[0]), "ticks");
 
   /** Copy the timers to the class members read in time ISR */
   noInterrupts();
+  m_ssrNewValues = true;
   for (uint8_t i = 0; i < m_nbChannels; i++)
   {
-    m_ssrTimer[i] = ssrTimers[i];
+    m_nextSsrTimer[i] = ssrTimers[i];
   }
   interrupts();
 
-  m_outputsIndex = (m_outputsIndex +1) % m_outputsArraySize;
+  m_outputsIndex = (m_outputsIndex + 1) % m_outputsArraySize;
 
-  return instantPower;
+  return outPower;
 }
-
-
 
 IRAM_ATTR void Dimmer::updateChannelsOutput(void)
 {
   if (m_state != false)
   {
+    if ((m_ssrNewValues == true) && (m_ssrCycleTimer == 0))
+    {
+      m_ssrCycleTimer = m_nbHalfPeriodsPerSample * 2;
+      m_ssrNewValues = false;
+
+      // Copy the new timers values
+      for (uint8_t i = 0; i < m_nbChannels; i++)
+      {
+        m_ssrTimer[i] = m_nextSsrTimer[i];
+      }
+    }
+    else
+    {
+      if (m_ssrCycleTimer > 0)
+      {
+        m_ssrCycleTimer--;
+      }
+    }
+
     for (uint8_t i = 0; i < m_nbChannels; i++)
     {
       if (m_ssrTimer[i] > 0)
@@ -260,14 +281,14 @@ IRAM_ATTR void Dimmer::updateChannelsOutput(void)
 
 /**
  * @brief Initialize the outputs array to zero
- * 
+ *
  */
 void Dimmer::initOutputsArray(float_t value)
 {
   for (uint8_t i = 0; i < m_outputsArraySize; i++)
   {
     m_outputs[i] = value;
-  } 
+  }
 }
 
 float_t Dimmer::getOutputsAverage(void)
@@ -281,32 +302,4 @@ float_t Dimmer::getOutputsAverage(void)
   avg /= m_outputsArraySize;
 
   return avg;
-} 
-
-
-float_t Dimmer::simulateSolarProduction(float_t gridPower)
-{
-  static uint16_t m_simulCount = 0;
-  
-  // Simulate a solar production during first 20s and then no solar production
-  if (m_simulCount < (20000 / m_pid.GetSampleTime()))
-  {
-    gridPower -= dash.data.solarPowerSimul;
-  }
-  m_simulCount++;
-
-  if (m_simulCount > (40000 / m_pid.GetSampleTime()))
-  {
-    m_simulCount = 0;
-  }
-
-  return gridPower;
-}
-
-float_t Dimmer::simulateRetroaction(float_t gridPower, float_t outputsAvg)
-{
-  // Simulation of shelly measure (retroaction)
-  gridPower += outputsAvg;
-
-  return gridPower;
 }
