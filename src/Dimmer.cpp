@@ -4,7 +4,7 @@
 #include "Logger.h"
 #include "libPID.h"
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : m_pid(0.25f, 0.9f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : m_pid(0.4f, 1.0f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
 {
   if (nbChannels > MAX_DIMMER_CHANNELS)
   {
@@ -45,8 +45,7 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod,
 
   m_pid.SetSampleTime(samplePeriod);
 
-  Logger::log(LogLevel::DEBUG, "Dimmer: gridFrequency=%i, measurePeriod=%i, samplePeriod=%i, \
-              nbHalfPeriodsPerSample=%i, outputsArraySize=%i",
+  Logger::log(LogLevel::DEBUG, "Dimmer: gridFrequency=%i, measurePeriod=%i, samplePeriod=%i, nbHalfPeriodsPerSample=%i, outputsArraySize=%i",
               m_gridFrequency, m_measurePeriod, m_samplePeriod,
               m_nbHalfPeriodsPerSample, m_outputsArraySize);
 }
