@@ -30,6 +30,10 @@ PID::PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection)
 {
 }
 
+PID::~PID()
+{
+}
+
 float_t PID::Compute(float_t Input, float_t Setpoint)
 {
   float_t error = (Setpoint - Input);

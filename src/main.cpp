@@ -15,6 +15,9 @@
 #include "Dimmer.h"
 #include "libPID.h"
 
+/******************************************************************************
+ * @defgroup Enumerations Declaration
+ *************************************************************************@{ */
 typedef enum
 {
   MNG_INITIALIZING = 0,
@@ -22,81 +25,105 @@ typedef enum
   MNG_DIMMER_ON
 } MngState_t;
 
-/** TaskSheduler definitions */
+/** @} */
 
-void BackgroundCbk(void);
-void ManagerCbk(void);
-void GetShellyPowerCbk(void);
-void PidFilterCbk(void);
+/******************************************************************************
+ * @defgroup Private Functions Declaration
+ *************************************************************************@{ */
 
-/** Save callback */
-void SaveConfigCallback();
+/** TaskSheduler prototype definitions */
+static void backgroundCbk(void);
+static void managerCbk(void);
+static void getShellyPowerCbk(void);
+static void pidFilterCbk(void);
+
+/** Save callback when value stored in EEPROM */
+static void saveConfigCallback();
+
+/** Setup dimmer channels according to power settings */
+static void setupDimmerChannels(uint16_t powerSSR1, uint16_t powerSSR2, uint16_t powerSSR3);
 
 /** Timer ISR callback */
-IRAM_ATTR void Dimmer_ISR();
+static IRAM_ATTR void dimmer_ISR();
 
+/** @} */
+
+/******************************************************************************
+ * @defgroup Private Variables
+ *************************************************************************@{ */
 Scheduler m_runnerP0;
 Scheduler m_runnerP1;
 
 /** Background task execution */
-Task m_taskManager(50 * TASK_MILLISECOND, TASK_FOREVER, &ManagerCbk, &m_runnerP0);
-Task m_taskBackground(25 * TASK_MILLISECOND, TASK_FOREVER, &BackgroundCbk, &m_runnerP0);
+Task m_taskManager(50 * TASK_MILLISECOND, TASK_FOREVER, &managerCbk, &m_runnerP0);
+Task m_taskBackground(25 * TASK_MILLISECOND, TASK_FOREVER, &backgroundCbk, &m_runnerP0);
 
 /** High prio tasks execution */
-/** First get Shelly power, then filter it with PID*/
-Task m_taskGetPower(POWER_GRID_MEASURE_PERIOD_MS *TASK_MILLISECOND, TASK_FOREVER, &GetShellyPowerCbk, &m_runnerP1);
-Task m_taskPidFilter((POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES) * TASK_MILLISECOND, TASK_FOREVER, &PidFilterCbk, &m_runnerP1);
+/** First get Shelly power, then filter it with PID */
+Task m_taskGetPower(POWER_GRID_MEASURE_PERIOD_MS *TASK_MILLISECOND, TASK_FOREVER, &getShellyPowerCbk, &m_runnerP1);
+Task m_taskPidFilter((POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES) * TASK_MILLISECOND, TASK_FOREVER, &pidFilterCbk, &m_runnerP1);
 
 /** Shelly http requests */
-WiFiClient espClient;
-Shelly m_shelly(espClient);
+WiFiClient m_espClient;
+Shelly m_shelly(m_espClient);
 
 /** Dimmer */
-/** 3 channels, grid frequency, PID sample time, Measure period of sensor*/
-Dimmer m_dimmer(1, POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES, POWER_GRID_MEASURE_PERIOD_MS * 2);
+/** grid frequency, PID sample time, Measure period of sensor*/
+Dimmer m_dimmer(POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES, POWER_GRID_MEASURE_PERIOD_MS * 2);
 
 /** UDP over wifi */
 WiFiUDP m_udp;
 
+/** Application state */
 static MngState_t m_appliState = MNG_INITIALIZING;
 
+/** SSR power settings */
+static uint16_t m_powerSSR1 = 0;
+static uint16_t m_powerSSR2 = 0;
+static uint16_t m_powerSSR3 = 0;
+
+/** @} */
+
+/******************************************************************************
+ * @defgroup Public Functions Implementation
+ *************************************************************************@{ */
+
+/**
+ * @brief setup function called once at startup of the program
+ */
 void setup()
 {
-  // Logger init
-  Logger::init();
-  Logger::setLogLevel(LogLevel::DEBUG);
-
-  // Dimmer init
-  m_dimmer.mapChannelToPin(0, SSR1_Pin);
-  // m_dimmer.mapChannelToPin(1, SSR2_Pin);
-  // m_dimmer.mapChannelToPin(2, SSR3_Pin);
-  m_dimmer.setChannelPower(0, 750);
-  // m_dimmer.setChannelPower(1, 1000);
-  // m_dimmer.setChannelPower(2, 1000);
-  //  Todo : compute it based on channels power
-  m_dimmer.setMaxOutputPower(750);
-  m_dimmer.turnOff();
-
-  // Check ESP flash size
-  Utils::checkEspFlash();
+  /* Initialize outputs SSR pins to low*/
+  digitalWrite(SSR1_Pin, LOGICAL_LOW);
+  digitalWrite(SSR2_Pin, LOGICAL_LOW);
+  digitalWrite(SSR3_Pin, LOGICAL_LOW);
 
   // Filesystem init
   LittleFS.begin();
 
+  // Logger init
+  Logger::init();
+  Logger::setLogLevel(LogLevel::DEBUG);
+
+  // Check ESP flash size
+  Utils::checkEspFlash();
+
   // Init configuration manager (data stored in EEPROM)
   configManager.begin();
-  configManager.setConfigSaveCallback(SaveConfigCallback);
+  configManager.setConfigSaveCallback(saveConfigCallback);
 
+  // Apply initial dimmer configuration from config manager
+  setupDimmerChannels(configManager.data.SSR1,
+                      configManager.data.SSR2,
+                      configManager.data.SSR3);
   // Apply PID parameters from config
   m_dimmer.setPidParameters(configManager.data.Kp, configManager.data.Ki, configManager.data.Kd);
-
-  // Setup teleplotUdp
-  Logger::setupTeleplotUdp(&m_udp, "192.168.1.96", 47269);
+  m_dimmer.turnOff();
 
   // Network initialization
   Network::begin();
-  // Once time is given by NTP, sync time to logger
   Logger::syncTime();
+  Logger::setupTeleplotUdp(&m_udp, "192.168.1.96", 47269);
 
   // Web server init
   GUI.begin();
@@ -112,21 +139,32 @@ void setup()
   m_shelly.setIpAddress("192.168.1.58");
 
   // Hardware timer init for dimmer control (at 50Hz, *4 to drive SSR at right time)
-  Utils::initHwTimer(POWER_GRID_FREQUENCY_HZ * 4, Dimmer_ISR);
+  Utils::initHwTimer(POWER_GRID_FREQUENCY_HZ * 4, dimmer_ISR);
 
   // Sheduler tasks setup and recursive start
   m_runnerP0.setHighPriorityScheduler(&m_runnerP1);
   m_runnerP0.enableAll(true);
 }
 
+/**
+ * @brief main loop function called repeatedly after setup()
+ */
 void loop()
 {
   // tasks execution
   m_runnerP0.execute();
 }
 
-/** TaskScheduler callback tasks */
-void BackgroundCbk(void)
+/** @} */
+
+/******************************************************************************
+ * @defgroup  Private Functions Implementation
+ *************************************************************************@{ */
+
+/**
+ * @brief Background task called by TaskScheduler regularly to handle non time-critical functions
+ */
+static void backgroundCbk(void)
 {
   if (!m_runnerP0.isOverrun())
   {
@@ -146,7 +184,11 @@ void BackgroundCbk(void)
   }
 }
 
-void ManagerCbk(void)
+/**
+ * @brief Manager task called by TaskScheduler regularly to handle application state machine
+ *
+ */
+static void managerCbk(void)
 {
   if (!m_runnerP0.isOverrun())
   {
@@ -164,13 +206,29 @@ void ManagerCbk(void)
         (configManager.data.Ki != Ki) ||
         (configManager.data.Kd != Kd))
     {
-      Logger::log(LogLevel::INFO, "ManagerCbk: PID parameters changed Kp=%.3f Ki=%.3f Kd=%.3f",
+      Logger::log(LogLevel::INFO, "backgroundCbk: PID parameters changed Kp=%.3f Ki=%.3f Kd=%.3f",
                   configManager.data.Kp, configManager.data.Ki, configManager.data.Kd);
 
       // Update dimmer PID parameters
       m_dimmer.setPidParameters(configManager.data.Kp,
                                 configManager.data.Ki,
                                 configManager.data.Kd);
+    }
+
+    /** Check if the channel setting has changed */
+    if ((configManager.data.SSR1 != m_powerSSR1) ||
+        (configManager.data.SSR2 != m_powerSSR2) ||
+        (configManager.data.SSR3 != m_powerSSR3))
+    {
+      Logger::log(LogLevel::INFO, "backgroundCbk: SSR power settings changed SSR1=%dW SSR2=%dW SSR3=%dW",
+                  configManager.data.SSR1,
+                  configManager.data.SSR2,
+                  configManager.data.SSR3);
+
+      // Reconfigure dimmer channels
+      setupDimmerChannels(configManager.data.SSR1,
+                          configManager.data.SSR2,
+                          configManager.data.SSR3);
     }
 
     switch (m_appliState)
@@ -206,8 +264,11 @@ void ManagerCbk(void)
   }
 }
 
-/*Called every POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES  = 250 ms*/
-void PidFilterCbk(void)
+/**
+ * @brief Pid filter task called by TaskScheduler regularly to compute the power to be routed
+ *        Called every POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES  = 250 ms
+ */
+static void pidFilterCbk(void)
 {
   float_t power = 0.0f;
   float_t gridPower = 0.0f;
@@ -227,7 +288,11 @@ void PidFilterCbk(void)
   dash.data.powerRouted = power;
 }
 
-void GetShellyPowerCbk(void)
+/**
+ * @brief Shelly power get task called by TaskScheduler regularly to get the power from Shelly device
+ *
+ */
+static void getShellyPowerCbk(void)
 {
   float power = 0.0f;
   bool success = false;
@@ -246,16 +311,93 @@ void GetShellyPowerCbk(void)
     }
   }
 }
-
-/** configManager save callback  */
-
-void SaveConfigCallback()
+/**
+ * @brief Save configuration callback called when configuration is stored in EEPROM
+ */
+static void saveConfigCallback()
 {
   Logger::log(LogLevel::INFO, "Configuration saved in EEPROM");
 }
 
-/** Dimmer ISR */
-IRAM_ATTR void Dimmer_ISR()
+/**
+ * @brief Setup dimmer channels according to power settings
+ *
+ * @param powerSSR1 Load power on SSR1
+ * @param powerSSR2 Load power on SSR2
+ * @param powerSSR3 Load power on SSR3
+ */
+static void setupDimmerChannels(uint16_t powerSSR1, uint16_t powerSSR2, uint16_t powerSSR3)
+{
+  uint8_t nbChannels = 0;
+  uint16_t maxPower = 0;
+  bool ssr1Used = false;
+  bool ssr2Used = false;
+
+  /** Initialize all SSR pins to LOW */
+  if (m_powerSSR1 > 0)
+  {
+    digitalWrite(SSR1_Pin, LOGICAL_LOW);
+  }
+  if (m_powerSSR2 > 0)
+  {
+    digitalWrite(SSR2_Pin, LOGICAL_LOW);
+  }
+  if (m_powerSSR3 > 0)
+  {
+    digitalWrite(SSR3_Pin, LOGICAL_LOW);
+  }
+
+  /** Setup new power values */
+  m_powerSSR1 = powerSSR1;
+  m_powerSSR2 = powerSSR2;
+  m_powerSSR3 = powerSSR3;
+
+  if (m_powerSSR1 > 0)
+  {
+    nbChannels++;
+  }
+  if (m_powerSSR2 > 0)
+  {
+    nbChannels++;
+  }
+  if (m_powerSSR3 > 0)
+  {
+    nbChannels++;
+  }
+  m_dimmer.setNbChannels(nbChannels);
+
+  for (uint8_t i = 0; i < nbChannels; i++)
+  {
+    if (m_powerSSR1 > 0 && !ssr1Used)
+    {
+      ssr1Used = true;
+      maxPower += m_powerSSR1;
+      m_dimmer.mapChannelToPin(i, SSR1_Pin);
+      m_dimmer.setChannelPower(i, m_powerSSR1);
+    }
+    else if (m_powerSSR2 > 0 && !ssr2Used)
+    {
+      ssr2Used = true;
+      maxPower += m_powerSSR2;
+      m_dimmer.mapChannelToPin(i, SSR2_Pin);
+      m_dimmer.setChannelPower(i, m_powerSSR2);
+    }
+    else if (m_powerSSR3 > 0)
+    {
+      maxPower += m_powerSSR3;
+      m_dimmer.mapChannelToPin(i, SSR3_Pin);
+      m_dimmer.setChannelPower(i, m_powerSSR3);
+    }
+  }
+  m_dimmer.setMaxOutputPower(maxPower);
+}
+
+/**
+ * @brief ISR for dimmer control
+ */
+static IRAM_ATTR void dimmer_ISR()
 {
   m_dimmer.updateChannelsOutput();
 }
+
+/** @} */

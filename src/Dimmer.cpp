@@ -4,29 +4,17 @@
 #include "Logger.h"
 #include "libPID.h"
 
-Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : m_pid(0.4f, 1.0f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
+Dimmer::Dimmer(uint8_t gridFrequency, uint16_t samplePeriod, uint16_t measurePeriod) : m_pid(0.4f, 1.0f, 0.0f, PidProportionalOption::ON_ERROR, PidDirection::DIRECT)
 {
-  if (nbChannels > MAX_DIMMER_CHANNELS)
-  {
-    Logger::log(LogLevel::WARNING, "Dimmer: nbChannels (%d) exceeds MAX_DIMMER_CHANNELS (%d). \
-                                    Limiting to MAX_DIMMER_CHANNELS.",
-                nbChannels, MAX_DIMMER_CHANNELS);
-    nbChannels = MAX_DIMMER_CHANNELS;
-  }
-  m_nbChannels = nbChannels;
   m_gridFrequency = gridFrequency;
   m_measurePeriod = measurePeriod;
   m_samplePeriod = samplePeriod;
+  m_nbChannels = 0;
+
   m_nbHalfPeriodsPerSample = (m_samplePeriod / (1000 / (m_gridFrequency * 2)));
-  m_ssrTimer = new uint16_t[nbChannels];
-  m_nextSsrTimer = new uint16_t[nbChannels];
-  m_pinMapping = new uint8_t[nbChannels];
-  m_channelPower = new uint16_t[nbChannels];
-
   m_outputsArraySize = measurePeriod / samplePeriod;
-  m_outputs = new float_t[m_outputsArraySize];
-  m_outputError = 0.0f;
 
+  m_outputError = 0.0f;
   m_outputsIndex = 0;
   m_previousGridPower = 0.0f;
   m_state = false;
@@ -34,13 +22,12 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod,
   m_paramsChanged = false;
   m_ssrCycleTimer = 0;
 
-  for (uint8_t i = 0; i < nbChannels; i++)
-  {
-    m_ssrTimer[i] = 0;
-    m_nextSsrTimer[i] = 0;
-    m_pinMapping[i] = 0;
-  }
+  m_ssrTimer = nullptr;
+  m_nextSsrTimer = nullptr;
+  m_pinMapping = nullptr;
+  m_channelPower = nullptr;
 
+  m_outputs = new float_t[m_outputsArraySize];
   initOutputsArray(0.0f);
 
   m_pid.SetSampleTime(samplePeriod);
@@ -52,9 +39,71 @@ Dimmer::Dimmer(uint8_t nbChannels, uint8_t gridFrequency, uint16_t samplePeriod,
 
 Dimmer::~Dimmer()
 {
-  delete[] m_ssrTimer;
-  delete[] m_pinMapping;
-  delete[] m_outputs;
+  if (m_ssrTimer != nullptr)
+  {
+    delete[] m_ssrTimer;
+  }
+  if (m_nextSsrTimer != nullptr)
+  {
+    delete[] m_nextSsrTimer;
+  }
+  if (m_pinMapping != nullptr)
+  {
+    delete[] m_pinMapping;
+  }
+  if (m_channelPower != nullptr)
+  {
+    delete[] m_channelPower;
+  }
+  if (m_outputs != nullptr)
+  {
+    delete[] m_outputs;
+  }
+}
+
+void Dimmer::setNbChannels(uint8_t nbChannels)
+{
+  if ((nbChannels <= MAX_DIMMER_CHANNELS) && (nbChannels > 0))
+  {
+    if (nbChannels != m_nbChannels)
+    {
+      if (m_ssrTimer != nullptr)
+      {
+        delete[] m_ssrTimer;
+      }
+      if (m_nextSsrTimer != nullptr)
+      {
+        delete[] m_nextSsrTimer;
+      }
+      if (m_pinMapping != nullptr)
+      {
+        delete[] m_pinMapping;
+      }
+      if (m_channelPower != nullptr)
+      {
+        delete[] m_channelPower;
+      }
+
+      m_nbChannels = nbChannels;
+      m_ssrTimer = new uint16_t[nbChannels];
+      m_nextSsrTimer = new uint16_t[nbChannels];
+      m_pinMapping = new uint8_t[nbChannels];
+      m_channelPower = new uint16_t[nbChannels];
+
+      for (uint8_t i = 0; i < nbChannels; i++)
+      {
+        m_ssrTimer[i] = 0;
+        m_nextSsrTimer[i] = 0;
+        m_pinMapping[i] = 0;
+        m_channelPower[i] = 0;
+      }
+    }
+  }
+  else
+  {
+    Logger::log(LogLevel::ERROR, "Invalid number of channels (%d), must be greater than zero and less than or equal to MAX_DIMMER_CHANNELS (%d).",
+                m_nbChannels);
+  }
 }
 
 bool Dimmer::mapChannelToPin(uint8_t channel, uint8_t pin)

@@ -9,9 +9,15 @@
 class Dimmer
 {
 public:
-  Dimmer(uint8_t nbChannels = 3, uint8_t gridFrequency = POWER_GRID_FREQUENCY_HZ,
+  Dimmer(uint8_t gridFrequency = POWER_GRID_FREQUENCY_HZ,
          uint16_t samplePeriod = 250, uint16_t measurePeriod = 1000);
   ~Dimmer();
+
+  /**
+   * @brief Set the number of SSR channels of the dimmer
+   * @param nbChannels
+   */
+  void setNbChannels(uint8_t nbChannels);
 
   /**
    * @brief Update the dimmer's digital outputs state.

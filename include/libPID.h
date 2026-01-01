@@ -56,6 +56,12 @@ public:
   PID(float_t Kp, float_t Ki, float_t Kd, PidDirection ControllerDirection);
 
   /**
+   * @brief Destroy the PID object
+   *
+   */
+  ~PID();
+
+  /**
    * @brief Perform the PID control calculation and update the output.
    *
    * @param Input  New input value for the PID controller.
