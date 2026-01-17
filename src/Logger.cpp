@@ -216,6 +216,10 @@ String Logger::logLevelToString(const LogLevel logLevel)
     s = "NONE";
     break;
 
+  case LogLevel::TRACE:
+    s = "TRACE";
+    break;
+
   case LogLevel::DEBUG:
     s = "DEBUG";
     break;
@@ -230,6 +234,10 @@ String Logger::logLevelToString(const LogLevel logLevel)
 
   case LogLevel::ERROR:
     s = "ERROR";
+    break;
+
+  case LogLevel::FATAL:
+    s = "FATAL";
     break;
 
   default:

@@ -10,7 +10,7 @@ class Dimmer
 {
 public:
   Dimmer(uint8_t gridFrequency = POWER_GRID_FREQUENCY_HZ,
-         uint16_t samplePeriod = 250, uint16_t measurePeriod = 1000);
+         uint16_t measurePeriod = 1000, uint16_t pidPeriod = 250, uint16_t outputPeriod = 250);
   ~Dimmer();
 
   /**
@@ -52,9 +52,9 @@ public:
   /**
    * @brief Compute and update power to be applied on the channels
    * @param gridPower   Grid power measurement
-   * @return float_t   The power routed
+   * @param newMeasure  Indicates if a new measurement is available
    */
-  float_t update(float_t gridPower);
+  float_t update(float_t gridPower, bool newMeasure);
 
   /**
    * @brief Associate a logical dimmer channel with a physical MCU pin.
@@ -104,14 +104,17 @@ public:
 
 private:
   void initOutputsArray(float_t value);
-
   float_t getOutputsAverage(void);
 
-  uint8_t m_nbChannels;              /** Number of output channels */
-  uint8_t m_gridFrequency;           /** The frequency of the grid'power */
-  uint16_t m_measurePeriod;          /** The period of the grid measure */
-  uint16_t m_samplePeriod;           /** The sample period of PID  */
-  uint16_t m_nbHalfPeriodsPerSample; /** Number of half periods per sample */
+  void initInputsArray(float_t value);
+  float_t getInputsAverage(void);
+
+  uint8_t m_nbChannels;                /** Number of output channels */
+  uint8_t m_gridFrequency;             /** The frequency of the grid'power */
+  uint16_t m_measurePeriod;            /** The period of the grid measure */
+  uint16_t m_pidPeriod;                /** The sample period of PID  */
+  uint16_t m_outputPeriod;             /** The output period of the dimmer */
+  uint16_t m_nbHalfSinPerOutputPeriod; /** Number of half periods per output period */
 
   bool m_state;             /** Global state ON or OFF */
   bool m_paramsChanged;     /** Flag to indicate PID parameters have changed */
@@ -121,12 +124,15 @@ private:
   bool m_ssrNewValues;      /** Flag to indicate new SSR timers values are available */
   uint16_t m_ssrCycleTimer; /** Cycle time for SSR control in number of half periods */
 
-  uint16_t *m_channelPower;   /** Resistive power of each channels, size is m_nbChannels */
-  uint8_t *m_pinMapping;      /** Pin affectation to channels, size is m_nbChannels */
-  float_t *m_outputs;         /** Array of float_t, size is m_outputsArraySize */
-  uint8_t m_outputsArraySize; /** Size is m_measurePeriod / samplePeriod */
-  float_t m_outputError;      /** Retained error for decimation outputs calculation */
-  uint8_t m_outputsIndex;     /** Current index in m_outputs array*/
+  uint16_t *m_channelPower; /** Resistive power of each channels, size is m_nbChannels */
+  uint8_t *m_pinMapping;    /** Pin affectation to channels, size is m_nbChannels */
+  uint8_t m_filterSize;     /** Size is m_measurePeriod / m_pidPeriod */
+  float_t *m_outputs;       /** Array of float_t, size is m_filterSize */
+  float_t *m_inputs;        /** Array of float_t, size is m_filterSize */
+  uint8_t m_filterIndex;    /** Current index in m_outputs array*/
+
+  float_t m_outputError; /** Retained error for decimation outputs calculation */
+
   float_t m_previousGridPower;
   float_t m_lastAvgOutput;
   PID m_pid;

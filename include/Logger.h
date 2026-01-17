@@ -8,10 +8,12 @@
 enum class LogLevel
 {
   NONE = 0,
+  TRACE,
   DEBUG,
   INFO,
   WARNING,
-  ERROR
+  ERROR,
+  FATAL
 };
 
 enum class StringType

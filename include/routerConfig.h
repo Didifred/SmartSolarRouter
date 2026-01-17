@@ -2,10 +2,13 @@
 #define ROUTER_CONFIG_H
 
 /** Power grid measure period in ms */
-#define POWER_GRID_MEASURE_PERIOD_MS 500
+#define POWER_GRID_MEASURE_PERIOD_MS 1000
 
-/** Nb pid samples per measure (must be greater than 1) */
-#define NB_PID_SAMPLES 2
+/** PID sample period in ms */
+#define PID_SAMPLE_PERIOD_MS 250
+
+/** Dimmer output period in ms */
+#define DIMMER_OUTPUT_PERIOD_MS 250
 
 /** Power grid frequency */
 #define POWER_GRID_FREQUENCY_HZ 50

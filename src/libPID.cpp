@@ -60,7 +60,7 @@ float_t PID::Compute(float_t Input, float_t Setpoint)
   saturationError = Clamp(&output, m_outMin, m_outMax);
 
   // Back-calculation : compensate  integral due to output saturation
-  m_outputSum -= (m_kt * saturationError);
+  m_outputSum += (m_kt * saturationError);
   Logger::plot("Dimmer.outputSum", String(m_outputSum), "W");
 
   // Remember some variables for next time
@@ -175,12 +175,12 @@ float_t PID::Clamp(float_t *Value, float_t Min, float_t Max)
 
   if (*Value > Max)
   {
-    saturationError = *Value - Max;
+    saturationError = Max - *Value;
     *Value = Max;
   }
   else if (*Value < Min)
   {
-    saturationError = *Value - Min;
+    saturationError = Min - *Value;
     *Value = Min;
   }
 

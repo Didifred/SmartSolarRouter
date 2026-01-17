@@ -34,7 +34,7 @@ typedef enum
 /** TaskSheduler prototype definitions */
 static void backgroundCbk(void);
 static void managerCbk(void);
-static void getShellyPowerCbk(void);
+static void readShellyPowerCbk(void);
 static void pidFilterCbk(void);
 
 /** Save callback when value stored in EEPROM */
@@ -42,6 +42,9 @@ static void saveConfigCallback();
 
 /** Setup dimmer channels according to power settings */
 static void setupDimmerChannels(uint16_t powerSSR1, uint16_t powerSSR2, uint16_t powerSSR3);
+
+/** Callback used by coap */
+static void coapResponseCallback(CoapPacket &packet, IPAddress ip, int port);
 
 /** Timer ISR callback */
 static IRAM_ATTR void dimmer_ISR();
@@ -56,23 +59,23 @@ Scheduler m_runnerP1;
 
 /** Background task execution */
 Task m_taskManager(50 * TASK_MILLISECOND, TASK_FOREVER, &managerCbk, &m_runnerP0);
-Task m_taskBackground(25 * TASK_MILLISECOND, TASK_FOREVER, &backgroundCbk, &m_runnerP0);
+Task m_taskBackground(10 * TASK_MILLISECOND, TASK_FOREVER, &backgroundCbk, &m_runnerP0);
 
 /** High prio tasks execution */
 /** First get Shelly power, then filter it with PID */
-Task m_taskGetPower(POWER_GRID_MEASURE_PERIOD_MS *TASK_MILLISECOND, TASK_FOREVER, &getShellyPowerCbk, &m_runnerP1);
-Task m_taskPidFilter((POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES) * TASK_MILLISECOND, TASK_FOREVER, &pidFilterCbk, &m_runnerP1);
+Task m_taskGetPower(PID_SAMPLE_PERIOD_MS *TASK_MILLISECOND, TASK_FOREVER, &readShellyPowerCbk, &m_runnerP1);
+Task m_taskPidFilter(DIMMER_OUTPUT_PERIOD_MS *TASK_MILLISECOND, TASK_FOREVER, &pidFilterCbk, &m_runnerP1);
 
-/** Shelly http requests */
+/** Used for shelly and teleplot */
 WiFiClient m_espClient;
-Shelly m_shelly(m_espClient);
+WiFiUDP m_udp;
+
+/** Shelly power reading and averaging  */
+Shelly m_shelly(m_espClient, m_udp);
 
 /** Dimmer */
 /** grid frequency, PID sample time, Measure period of sensor*/
-Dimmer m_dimmer(POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS / NB_PID_SAMPLES, POWER_GRID_MEASURE_PERIOD_MS * 2);
-
-/** UDP over wifi */
-WiFiUDP m_udp;
+Dimmer m_dimmer(POWER_GRID_FREQUENCY_HZ, POWER_GRID_MEASURE_PERIOD_MS, PID_SAMPLE_PERIOD_MS, DIMMER_OUTPUT_PERIOD_MS);
 
 /** Application state */
 static MngState_t m_appliState = MNG_INITIALIZING;
@@ -123,6 +126,7 @@ void setup()
   // Network initialization
   Network::begin();
   Logger::syncTime();
+  // IP is DEV PC
   Logger::setupTeleplotUdp(&m_udp, "192.168.1.96", 47269);
 
   // Web server init
@@ -135,8 +139,12 @@ void setup()
   dash.begin(250);
 
   // Shelly init
-  /* TODO : could be host name shellyem-c45bbee1d9b1 ?*/
-  m_shelly.setIpAddress("192.168.1.58");
+  /* TODO : could be host name shellyem-c45bbee1d9b1 resolved by mdns ?*/
+  m_shelly.setup("192.168.1.58");
+  if (m_shelly.isCoIotEnabled())
+  {
+    m_shelly.setupCoIoT(coapResponseCallback);
+  }
 
   // Hardware timer init for dimmer control (at 50Hz, *4 to drive SSR at right time)
   Utils::initHwTimer(POWER_GRID_FREQUENCY_HZ * 4, dimmer_ISR);
@@ -144,6 +152,11 @@ void setup()
   // Sheduler tasks setup and recursive start
   m_runnerP0.setHighPriorityScheduler(&m_runnerP1);
   m_runnerP0.enableAll(true);
+  if (m_shelly.isCoIotEnabled())
+  {
+    // Delay the pid task execution since CoIoT reques in background task
+    m_taskPidFilter.delay(50 * TASK_MILLISECOND);
+  }
 }
 
 /**
@@ -179,6 +192,9 @@ static void backgroundCbk(void)
     // Config manager storage in EEPROM
     configManager.loop();
 
+    // Shelly measurement
+    m_shelly.loop();
+
     // Dashboard update
     dash.loop();
   }
@@ -190,10 +206,10 @@ static void backgroundCbk(void)
  */
 static void managerCbk(void)
 {
+  float_t Kp, Ki, Kd;
+
   if (!m_runnerP0.isOverrun())
   {
-    float_t Kp, Ki, Kd;
-
     // Enable or disable teleplot over UDP
     Logger::enableTeleplotUdp(dash.data.teleplotEnabled);
 
@@ -266,33 +282,41 @@ static void managerCbk(void)
 
 /**
  * @brief Pid filter task called by TaskScheduler regularly to compute the power to be routed
- *        Called every POWER_GRID_MEASURE_PERIOD_MS/NB_PID_SAMPLES  = 250 ms
+ *        Called every DIMMER_OUTPUT_PERIOD_MS  = 250 ms
  */
 static void pidFilterCbk(void)
 {
   float_t power = 0.0f;
   float_t gridPower = 0.0f;
+  bool newMeasure = false;
 
-  gridPower = m_shelly.getActivePower();
-
-  // Simulate solar production
-  if (dash.data.simuSolarPower > 0)
+  if (!m_runnerP1.isOverrun())
   {
-    gridPower -= dash.data.simuSolarPower;
+    gridPower = m_shelly.getActivePower();
+
+    // Simulate solar production
+    if (dash.data.simuSolarPower > 0)
+    {
+      gridPower -= dash.data.simuSolarPower;
+    }
+
+    // Update the power routed based on Shelly grid active power measure
+    newMeasure = m_shelly.isNewMeasure();
+    power = m_dimmer.update(gridPower, newMeasure);
+
+    if (newMeasure)
+    {
+      // Update graphic on dashboard
+      dash.data.powerRouted = power;
+    }
   }
-
-  // Update the power routed based on Shelly grid active power measure
-  power = m_dimmer.update(gridPower);
-
-  // Update graphic on dashboard
-  dash.data.powerRouted = power;
 }
 
 /**
- * @brief Shelly power get task called by TaskScheduler regularly to get the power from Shelly device
+ * @brief Shelly power read task called by TaskScheduler regularly to get the power from Shelly device
  *
  */
-static void getShellyPowerCbk(void)
+static void readShellyPowerCbk(void)
 {
   float power = 0.0f;
   bool success = false;
@@ -302,7 +326,7 @@ static void getShellyPowerCbk(void)
     if (m_appliState == MNG_DIMMER_ON)
     {
       success = m_shelly.updateMeasures();
-      if (success)
+      if (success && (m_shelly.isCoIotEnabled() == false))
       {
         power = m_shelly.getActivePower();
         // Update graphic on dashboard
@@ -317,6 +341,25 @@ static void getShellyPowerCbk(void)
 static void saveConfigCallback()
 {
   Logger::log(LogLevel::INFO, "Configuration saved in EEPROM");
+}
+
+/**
+ * @brief Coap response callback
+ *
+ */
+static void coapResponseCallback(CoapPacket &packet, IPAddress ip, int port)
+{
+  float power = 0.0f;
+
+  m_shelly.coapResponseCallbackImpl(packet, ip, port);
+
+  if (m_shelly.getErrorStatus() == false)
+  {
+    power = m_shelly.getActivePower();
+
+    // Update graphic on dashboard
+    dash.data.gridPower = power;
+  }
 }
 
 /**
