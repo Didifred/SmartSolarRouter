@@ -3,14 +3,26 @@
 
 #include <stdint.h>
 #include "libPID.h"
+#include "Utils.h"
 #include "hwConfig.h"
 #include "routerConfig.h"
 
 class Dimmer
 {
 public:
+  /**
+   * @brief Create a dimmer object
+   *
+   * @param gridFrequency  Frequency of the grid
+   * @param measurePeriod Period of the measure (ms)
+   * @param pidPeriod Sampling period of pid (ms)
+   * @param outPeriod Output period refresh (ms)
+   *
+   */
   Dimmer(uint8_t gridFrequency = POWER_GRID_FREQUENCY_HZ,
-         uint16_t measurePeriod = 1000, uint16_t pidPeriod = 250, uint16_t outputPeriod = 250);
+         uint16_t measurePeriod = POWER_GRID_MEASURE_PERIOD_MS,
+         uint16_t pidPeriod = PID_SAMPLE_PERIOD_MS,
+         uint16_t outputPeriod = DIMMER_OUTPUT_PERIOD_MS);
   ~Dimmer();
 
   /**
@@ -53,8 +65,25 @@ public:
    * @brief Compute and update power to be applied on the channels
    * @param gridPower   Grid power measurement
    * @param newMeasure  Indicates if a new measurement is available
+   * @return The computed output power in W
    */
   float_t update(float_t gridPower, bool newMeasure);
+
+  /**
+   * @brief Uniformize the SSR pulses for a given period
+   *
+   * @param bitset The bitset to fill with the pulse pattern
+   * @param numerator Numerator of the fraction of output power to apply (between 0 and denominator)
+   * @param denominator   Denominator of the fraction of output power to apply (between 1 and DIMMER_FRACTION_DENOMINATOR)
+   */
+  void uniformize(Bitset<DIMMER_ISR_NB_TICKS> &bitset, uint16_t numerator, uint16_t denominator);
+
+  /**
+   * @brief Compute the next SSR pulses pattern to apply based on the output power to apply on the load
+   *
+   * @param outPower
+   */
+  void computeNextSsrPulses(float_t outPower);
 
   /**
    * @brief Associate a logical dimmer channel with a physical MCU pin.
@@ -103,38 +132,35 @@ public:
   void setSimuEnabled(bool enabled);
 
 private:
-  void initOutputsArray(float_t value);
-  float_t getOutputsAverage(void);
+  void initArray(float_t *array, uint8_t size, float_t value);
+  float_t getAverage(float_t *array, uint8_t size);
 
-  void initInputsArray(float_t value);
-  float_t getInputsAverage(void);
+  const uint8_t m_gridFrequency;             /** The frequency of the grid'power */
+  const uint16_t m_measurePeriod;            /** The period of the grid measure */
+  const uint16_t m_pidPeriod;                /** The sample period of PID  */
+  const uint16_t m_outputPeriod;             /** The output period of the dimmer */
+  const uint16_t m_nbHalfSinPerOutputPeriod; /** Number of half periods per output period */
+  uint8_t m_nbChannels;                      /** Number of output channels */
 
-  uint8_t m_nbChannels;                /** Number of output channels */
-  uint8_t m_gridFrequency;             /** The frequency of the grid'power */
-  uint16_t m_measurePeriod;            /** The period of the grid measure */
-  uint16_t m_pidPeriod;                /** The sample period of PID  */
-  uint16_t m_outputPeriod;             /** The output period of the dimmer */
-  uint16_t m_nbHalfSinPerOutputPeriod; /** Number of half periods per output period */
-
-  bool m_state;             /** Global state ON or OFF */
-  bool m_paramsChanged;     /** Flag to indicate PID parameters have changed */
-  bool m_simuOn;            /** Simulation of heater retroaction */
-  uint16_t *m_ssrTimer;     /** Array of timers to control ssr pins ON or OFF, size is m_nbChannels*/
-  uint16_t *m_nextSsrTimer; /** Next array of timers to control ssr pins ON or OFF, size is m_nbChannels*/
-  bool m_ssrNewValues;      /** Flag to indicate new SSR timers values are available */
-  uint16_t m_ssrCycleTimer; /** Cycle time for SSR control in number of half periods */
+  bool m_state;                                             /** Global state ON or OFF */
+  bool m_paramsChanged;                                     /** Flag to indicate PID parameters have changed */
+  bool m_simuOn;                                            /** Simulation of heater retroaction */
+  std::vector<Bitset<DIMMER_ISR_NB_TICKS>> m_ssrPulses;     /** Vector of pulses to control ssr pins ON or OFF, size is m_nbChannels*/
+  std::vector<Bitset<DIMMER_ISR_NB_TICKS>> m_nextSsrPulses; /** Next array of pulses to control ssr pins ON or OFF, size is m_nbChannels*/
+  bool m_ssrNewValues;                                      /** Flag to indicate new SSR pulses values are available */
+  uint16_t m_ssrCycleTimer;                                 /** Cycle time for SSR control in number of half periods */
 
   uint16_t *m_channelPower; /** Resistive power of each channels, size is m_nbChannels */
   uint8_t *m_pinMapping;    /** Pin affectation to channels, size is m_nbChannels */
   uint8_t m_filterSize;     /** Size is m_measurePeriod / m_pidPeriod */
   float_t *m_outputs;       /** Array of float_t, size is m_filterSize */
-  float_t *m_inputs;        /** Array of float_t, size is m_filterSize */
   uint8_t m_filterIndex;    /** Current index in m_outputs array*/
 
   float_t m_outputError; /** Retained error for decimation outputs calculation */
 
+  float_t m_gridPowerFiltered; /** Filtered grid power used for PID input */
   float_t m_previousGridPower;
-  float_t m_lastAvgOutput;
+  float_t m_previousOutput;
   PID m_pid;
 };
 

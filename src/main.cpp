@@ -154,7 +154,7 @@ void setup()
   m_runnerP0.enableAll(true);
   if (m_shelly.isCoIotEnabled())
   {
-    // Delay the pid task execution since CoIoT reques in background task
+    // Delay the pid task execution since CoIoT request is handled in background task
     m_taskPidFilter.delay(50 * TASK_MILLISECOND);
   }
 }
@@ -282,7 +282,7 @@ static void managerCbk(void)
 
 /**
  * @brief Pid filter task called by TaskScheduler regularly to compute the power to be routed
- *        Called every DIMMER_OUTPUT_PERIOD_MS  = 250 ms
+ *        Called every DIMMER_OUTPUT_PERIOD_MS ms.
  */
 static void pidFilterCbk(void)
 {
@@ -293,6 +293,7 @@ static void pidFilterCbk(void)
   if (!m_runnerP1.isOverrun())
   {
     gridPower = m_shelly.getActivePower();
+    newMeasure = m_shelly.isNewMeasure();
 
     // Simulate solar production
     if (dash.data.simuSolarPower > 0)
@@ -300,14 +301,22 @@ static void pidFilterCbk(void)
       gridPower -= dash.data.simuSolarPower;
     }
 
-    // Update the power routed based on Shelly grid active power measure
-    newMeasure = m_shelly.isNewMeasure();
-    power = m_dimmer.update(gridPower, newMeasure);
+    if (dash.data.simuOutputPower > 0)
+    {
+      // Drive directly the dimmer (debug)
+      m_dimmer.computeNextSsrPulses(dash.data.simuOutputPower);
+      power = dash.data.simuOutputPower;
+    }
+    else
+    {
+      // Update the power routed based on Shelly grid active power measure
+      power = m_dimmer.update(gridPower, newMeasure);
+    }
 
     if (newMeasure)
     {
       // Update graphic on dashboard
-      dash.data.powerRouted = power;
+      dash.data.graphPowerRouted = power;
     }
   }
 }
@@ -330,7 +339,7 @@ static void readShellyPowerCbk(void)
       {
         power = m_shelly.getActivePower();
         // Update graphic on dashboard
-        dash.data.gridPower = power;
+        dash.data.graphGridPower = power;
       }
     }
   }
@@ -358,6 +367,7 @@ static void coapResponseCallback(CoapPacket &packet, IPAddress ip, int port)
     power = m_shelly.getActivePower();
 
     // Update graphic on dashboard
+    dash.data.graphGridPower = power;
     dash.data.gridPower = power;
   }
 }
